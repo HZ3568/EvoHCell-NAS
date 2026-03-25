@@ -1,0 +1,30 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Local config
+.claude/
+
+# Dataset and outputs
+data/
+results/
+
+# Model weights and logs
+*.pth
+*.pt
+*.ckpt
+*.log
+
+# Temp files
+.DS_Store
+Thumbs.db
