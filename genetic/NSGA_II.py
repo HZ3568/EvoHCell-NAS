@@ -9,16 +9,9 @@ from typing import List, Sequence, Dict, Any, Tuple
 import random
 from pathlib import Path
 
-try:
-    from genetic.population import Population, Individual
-    from genetic.evaluate import Evaluator
-    from genetic.crossover_and_mutation import layerwise_crossover
-    from experiments.config_loader import get_evolution_config
-except ImportError:
-    from population import Population, Individual
-    from evaluate import Evaluator
-    from crossover_and_mutation import layerwise_crossover
-    from experiments.config_loader import get_evolution_config
+from .population import Population, Individual
+from .evaluate import Evaluator
+from .crossover_and_mutation import layerwise_crossover
 
 
 class NSGAII:
@@ -141,16 +134,16 @@ class NSGAII:
 
 
 def run_nsga2(config: Dict[str, Any]) -> Tuple[Population, List[List[int]]]:
-    cfg = get_evolution_config()
-    cfg.update(config)
+    cfg = config.copy()
     if "init_population_path" not in cfg:
         cfg["init_population_path"] = str(Path(__file__).with_name("init_population.txt"))
-    init_pop_size = int(cfg["init_pop_size"])
-    max_population_size = int(cfg["population_size"])
-    generations = int(cfg["generations"])
-    parent_pool_size = int(cfg["parent_pool_size"])
-    crossover_rounds = int(cfg["crossover_rounds"])
+    init_pop_size = int(cfg.get("init_pop_size", cfg.get("population_size", 20)))
+    max_population_size = int(cfg.get("population_size", 20))
+    generations = int(cfg.get("generations", 20))
+    parent_pool_size = int(cfg.get("parent_pool_size", 10))
+    crossover_rounds = int(cfg.get("crossover_rounds", 10))
     cfg["pop_size"] = init_pop_size
+    cfg["objectives"] = 2
     pop = Population(cfg)
     pop.initialize()
     evaluator = Evaluator(cfg)
@@ -194,7 +187,17 @@ def run_nsga2(config: Dict[str, Any]) -> Tuple[Population, List[List[int]]]:
 
 
 if __name__ == "__main__":
-    config = get_evolution_config()
+    # 示例配置，实际使用时应从 search.py 传入
+    config = {
+        "data": "./data",
+        "batch_size": 96,
+        "generations": 20,
+        "population_size": 20,
+        "layers": 20,
+        "metric": "synflow",
+        "maximize_score": True,
+        "seed": 0,
+    }
     final_pop, fronts = run_nsga2(config)
     print(f"总前沿数: {len(fronts)}; 第一前沿大小: {len(fronts[0])}")
     first_front_inds = [final_pop.individuals[i] for i in fronts[0]]

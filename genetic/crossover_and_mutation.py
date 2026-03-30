@@ -4,10 +4,7 @@ from __future__ import annotations
 from typing import Tuple, Dict, Any
 import random
 
-try:
-    from genetic.population import Individual
-except ImportError:
-    from population import Individual
+from .population import Individual
 
 
 def layerwise_crossover(p1: Individual, p2: Individual, config: Dict[str, Any]) -> Tuple[Individual, Individual]:

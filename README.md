@@ -64,3 +64,5 @@ python real_train.py \
 ## 🔜 TODO
 - [ ] 修改pareto_front
 - [ ] pipline.py
+- [ ] 检查search的逻辑
+- [ ] 再次研究zero_cost

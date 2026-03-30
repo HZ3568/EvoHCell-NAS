@@ -9,13 +9,15 @@ def test_mutation_produces_different_individual():
     """变异概率设为1.0时，变异后的个体应与原始个体不同"""
     from genetic.population import Population
     from genetic.crossover_and_mutation import gaussian_mutation
-    from experiments.config_loader import get_evolution_config
 
-    config = get_evolution_config()
-    config["pop_size"] = 1
-    config["pm_layer"] = 1.0  # 强制每层都变异
-    config["pm_edge"] = 1.0   # 强制每条边都变异
-    config["init_population_path"] = str(Path(__file__).parent.parent / "genetic" / "init_population.txt")
+    config = {
+        "pop_size": 1,
+        "pm_layer": 1.0,  # 强制每层都变异
+        "pm_edge": 1.0,   # 强制每条边都变异
+        "layers": 8,
+        "objectives": 2,
+        "init_population_path": str(Path(__file__).parent.parent / "genetic" / "init_population.txt")
+    }
 
     pop = Population(config)
     pop.initialize()
@@ -37,13 +39,15 @@ def test_mutation_resets_fitness():
     """变异后的个体适应度应被重置为inf"""
     from genetic.population import Population
     from genetic.crossover_and_mutation import gaussian_mutation
-    from experiments.config_loader import get_evolution_config
 
-    config = get_evolution_config()
-    config["pop_size"] = 1
-    config["pm_layer"] = 1.0
-    config["pm_edge"] = 1.0
-    config["init_population_path"] = str(Path(__file__).parent.parent / "genetic" / "init_population.txt")
+    config = {
+        "pop_size": 1,
+        "pm_layer": 1.0,
+        "pm_edge": 1.0,
+        "layers": 8,
+        "objectives": 2,
+        "init_population_path": str(Path(__file__).parent.parent / "genetic" / "init_population.txt")
+    }
 
     pop = Population(config)
     pop.initialize()
@@ -62,13 +66,15 @@ def test_zero_mutation_preserves_individual():
     """变异概率为0时，个体应保持不变"""
     from genetic.population import Population
     from genetic.crossover_and_mutation import gaussian_mutation
-    from experiments.config_loader import get_evolution_config
 
-    config = get_evolution_config()
-    config["pop_size"] = 1
-    config["pm_layer"] = 0.0  # 不变异
-    config["pm_edge"] = 0.0
-    config["init_population_path"] = str(Path(__file__).parent.parent / "genetic" / "init_population.txt")
+    config = {
+        "pop_size": 1,
+        "pm_layer": 0.0,  # 不变异
+        "pm_edge": 0.0,
+        "layers": 8,
+        "objectives": 2,
+        "init_population_path": str(Path(__file__).parent.parent / "genetic" / "init_population.txt")
+    }
 
     pop = Population(config)
     pop.initialize()

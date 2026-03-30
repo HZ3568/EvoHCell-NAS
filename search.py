@@ -156,8 +156,6 @@ def _rank_candidate_indices(fronts: list[list[int]], total_count: int) -> list[i
 def _build_search_config(args: argparse.Namespace) -> dict[str, Any]:
     """
     将 argparse 参数整理成 NSGA-II 搜索所需配置。
-
-    这里不再依赖 config_loader.py，所有参数都来自命令行或函数传参。
     """
     return {
         "data": args.data,

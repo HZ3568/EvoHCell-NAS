@@ -9,10 +9,7 @@ import torchvision.datasets as dset
 import zero_cost.grad_norm
 import zero_cost.synflow
 
-try:
-    from genetic.population import Individual, Population
-except ImportError:
-    from population import Individual, Population
+from .population import Individual, Population
 from darts.model_hetero_cell import NetworkCIFARHeteroCell
 from darts.utils import _data_transforms_cifar10
 from zero_cost.zero_utils import _measure_impls
