@@ -13,12 +13,12 @@ try:
     from genetic.population import Population, Individual
     from genetic.evaluate import Evaluator
     from genetic.crossover_and_mutation import layerwise_crossover
-    from genetic.config_loader import get_evolution_config
+    from experiments.config_loader import get_evolution_config
 except ImportError:
     from population import Population, Individual
     from evaluate import Evaluator
     from crossover_and_mutation import layerwise_crossover
-    from config_loader import get_evolution_config
+    from experiments.config_loader import get_evolution_config
 
 
 class NSGAII:

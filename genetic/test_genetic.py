@@ -23,7 +23,7 @@ try:
     from genetic.population import Population, Individual
     from genetic.evaluate import Evaluator
     from genetic.crossover_and_mutation import layerwise_crossover
-    from genetic.config_loader import get_evolution_config, get_train_config
+    from experiments.config_loader import get_evolution_config, get_train_config
     from real_train import train_individual_with_cifar10, select_representative_individual
 except ImportError:
     import sys
@@ -32,7 +32,7 @@ except ImportError:
     from genetic.population import Population, Individual
     from genetic.evaluate import Evaluator
     from genetic.crossover_and_mutation import layerwise_crossover
-    from genetic.config_loader import get_evolution_config, get_train_config
+    from experiments.config_loader import get_evolution_config, get_train_config
     from real_train import train_individual_with_cifar10, select_representative_individual
 
 try:

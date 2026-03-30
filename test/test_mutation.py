@@ -1,6 +1,5 @@
 """测试变异算子能产生不同个体"""
 import sys
-import os
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -10,7 +9,7 @@ def test_mutation_produces_different_individual():
     """变异概率设为1.0时，变异后的个体应与原始个体不同"""
     from genetic.population import Population
     from genetic.crossover_and_mutation import gaussian_mutation
-    from genetic.config_loader import get_evolution_config
+    from experiments.config_loader import get_evolution_config
 
     config = get_evolution_config()
     config["pop_size"] = 1
@@ -38,7 +37,7 @@ def test_mutation_resets_fitness():
     """变异后的个体适应度应被重置为inf"""
     from genetic.population import Population
     from genetic.crossover_and_mutation import gaussian_mutation
-    from genetic.config_loader import get_evolution_config
+    from experiments.config_loader import get_evolution_config
 
     config = get_evolution_config()
     config["pop_size"] = 1
@@ -63,7 +62,7 @@ def test_zero_mutation_preserves_individual():
     """变异概率为0时，个体应保持不变"""
     from genetic.population import Population
     from genetic.crossover_and_mutation import gaussian_mutation
-    from genetic.config_loader import get_evolution_config
+    from experiments.config_loader import get_evolution_config
 
     config = get_evolution_config()
     config["pop_size"] = 1
