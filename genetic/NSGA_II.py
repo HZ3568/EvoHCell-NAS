@@ -5,13 +5,71 @@
 """
 
 from __future__ import annotations
-from typing import List, Sequence, Dict, Any, Tuple
+from typing import List, Sequence, Dict, Any, Tuple, Optional
+import logging
 import random
 from pathlib import Path
 
 from .population import Population, Individual
 from .evaluate import Evaluator
 from .crossover_and_mutation import layerwise_crossover
+
+
+def _pop_stats(individuals: Sequence[Individual]) -> Dict[str, Any]:
+    """统计种群两个目标的 min/mean/max。"""
+    if not individuals:
+        return {}
+    obj0 = [float(ind.fitness[0]) for ind in individuals]
+    obj1 = [float(ind.fitness[1]) for ind in individuals]
+    return {
+        "zero_cost": {"min": min(obj0), "mean": sum(obj0) / len(obj0), "max": max(obj0)},
+        "params_mb": {"min": min(obj1), "mean": sum(obj1) / len(obj1), "max": max(obj1)},
+    }
+
+
+def _front_representatives(
+    front_indices: List[int], individuals: Sequence[Individual]
+) -> Dict[str, Any]:
+    """从第一前沿中提取代表性个体（params_mb 最小 / zero-cost 最小）。"""
+    if not front_indices:
+        return {}
+    front_inds = [(i, individuals[i]) for i in front_indices]
+    best_params = min(front_inds, key=lambda x: float(x[1].fitness[1]))
+    best_score = min(front_inds, key=lambda x: float(x[1].fitness[0]))
+    return {
+        "best_params": {"idx": best_params[0], "params_mb": float(best_params[1].fitness[1]), "zero_cost_obj": float(best_params[1].fitness[0])},
+        "best_score": {"idx": best_score[0], "params_mb": float(best_score[1].fitness[1]), "zero_cost_obj": float(best_score[1].fitness[0])},
+    }
+
+
+def _log_gen_summary(
+    logger: logging.Logger,
+    gen_idx: int,
+    generations: int,
+    fronts: List[List[int]],
+    individuals: Sequence[Individual],
+) -> None:
+    """输出一代的简洁摘要日志。"""
+    first_front_size = len(fronts[0]) if fronts else 0
+    stats = _pop_stats(individuals)
+    reps = _front_representatives(fronts[0] if fronts else [], individuals)
+
+    zc = stats.get("zero_cost", {})
+    pm = stats.get("params_mb", {})
+    logger.info(
+        f"[Gen {gen_idx + 1:>3}/{generations}] "
+        f"前沿大小={first_front_size} | "
+        f"zero_cost obj: min={zc.get('min', 0):.4f} mean={zc.get('mean', 0):.4f} max={zc.get('max', 0):.4f} | "
+        f"params_mb: min={pm.get('min', 0):.2f} mean={pm.get('mean', 0):.2f} max={pm.get('max', 0):.2f}"
+    )
+    if reps:
+        bp = reps["best_params"]
+        bs = reps["best_score"]
+        logger.info(
+            f"  代表个体 -> "
+            f"params最小: params={bp['params_mb']:.2f}MB obj={bp['zero_cost_obj']:.4f} | "
+            f"score最优: params={bs['params_mb']:.2f}MB obj={bs['zero_cost_obj']:.4f}"
+        )
 
 
 class NSGAII:
@@ -132,8 +190,68 @@ class NSGAII:
                 break
         return selected
 
+    def update_rank_and_crowding(self, individuals: Sequence[Individual]) -> None:
+        """更新种群中所有个体的 p_rank 和 crowd_distance
 
-def run_nsga2(config: Dict[str, Any]) -> Tuple[Population, List[List[int]]]:
+        在父代选择前调用，确保锦标赛选择有正确的排序依据
+
+        Args:
+            individuals: 当前种群的所有个体
+        """
+        fronts = self.fast_nondominated_sort(individuals)
+        for front in fronts:
+            self.crowding_distance(front, individuals)
+
+    def better(self, a: Individual, b: Individual) -> bool:
+        """判断个体 a 是否优于个体 b（用于锦标赛选择）
+
+        比较规则：
+        1. p_rank 更小的更优（非支配等级越小越好）
+        2. 如果 p_rank 相同，crowd_distance 更大的更优（拥挤距离越大越好）
+
+        Args:
+            a: 个体 a
+            b: 个体 b
+
+        Returns:
+            True 如果 a 优于 b，否则 False
+        """
+        if a.p_rank < b.p_rank:
+            return True
+        elif a.p_rank > b.p_rank:
+            return False
+        else:
+            # p_rank 相同，比较拥挤距离
+            return a.crowd_distance > b.crowd_distance
+
+    def tournament_select_one(self, individuals: Sequence[Individual]) -> Individual:
+        """二元锦标赛选择一个个体
+
+        随机选择两个个体，返回更优的那个
+
+        Args:
+            individuals: 候选个体序列
+
+        Returns:
+            选中的个体
+        """
+        a, b = random.sample(list(individuals), 2)
+        return a if self.better(a, b) else b
+
+
+def run_nsga2(config: Dict[str, Any], logger: Optional[logging.Logger] = None) -> Tuple[Population, List[List[int]]]:
+    """运行 NSGA-II 进化搜索。
+
+    Args:
+        config: 搜索配置字典
+        logger: 日志记录器，如果为 None 则使用默认 logger
+
+    Returns:
+        (最终种群, 帕累托前沿列表)
+    """
+    if logger is None:
+        logger = logging.getLogger("EvoHCell-NAS")
+
     cfg = config.copy()
     if "init_population_path" not in cfg:
         cfg["init_population_path"] = str(Path(__file__).with_name("init_population.txt"))
@@ -144,6 +262,8 @@ def run_nsga2(config: Dict[str, Any]) -> Tuple[Population, List[List[int]]]:
     crossover_rounds = int(cfg.get("crossover_rounds", 10))
     cfg["pop_size"] = init_pop_size
     cfg["objectives"] = 2
+
+    logger.info("初始化种群...")
     pop = Population(cfg)
     pop.initialize()
     evaluator = Evaluator(cfg)
@@ -153,28 +273,52 @@ def run_nsga2(config: Dict[str, Any]) -> Tuple[Population, List[List[int]]]:
     fronts = nsga.fast_nondominated_sort(pop.individuals)
     pop.front = fronts
 
-    def score(ind: Individual) -> float:
-        return float(sum(ind.fitness))
+    # 输出初始化信息
+    first_front_size = len(fronts[0]) if fronts else 0
+    logger.info(f"初始种群大小: {len(pop.individuals)}")
+    logger.info(f"初始第一前沿大小: {first_front_size}")
+    logger.debug(f"初始种群统计: {_pop_stats(pop.individuals)}")
+    logger.info("-" * 60)
 
-    def select_two_parents(gen_idx: int) -> Tuple[Individual, Individual]:
-        if gen_idx == 0:
-            return tuple(random.sample(pop.individuals, 2))
-        ordered = sorted(pop.individuals, key=score)
-        k = min(max(2, parent_pool_size), len(ordered))
-        return tuple(random.sample(ordered[:k], 2))
+    def select_two_parents() -> Tuple[Individual, Individual]:
+        """使用二元锦标赛选择两个不同的父代个体
+
+        Returns:
+            两个不同的父代个体
+        """
+        p1 = nsga.tournament_select_one(pop.individuals)
+        # 避免选到同一个父代，最多重试 10 次
+        for _ in range(10):
+            p2 = nsga.tournament_select_one(pop.individuals)
+            if p2 is not p1:
+                return p1, p2
+        # 如果重试失败，直接随机选一个不同的
+        candidates = [ind for ind in pop.individuals if ind is not p1]
+        if candidates:
+            p2 = random.choice(candidates)
+        else:
+            p2 = p1  # 极端情况：种群只有一个个体
+        return p1, p2
 
     for gen_idx in range(generations):
+        logger.debug(f"开始第 {gen_idx + 1} 代交叉变异...")
+
+        # 在父代选择前更新所有个体的 rank 和 crowding distance
+        nsga.update_rank_and_crowding(pop.individuals)
+
         offsprings: List[Individual] = []
         for _ in range(crossover_rounds):
-            p1, p2 = select_two_parents(gen_idx)
+            p1, p2 = select_two_parents()
             c1, c2 = layerwise_crossover(p1, p2, cfg)
             offsprings.append(c1)
             offsprings.append(c2)
 
+        logger.debug(f"评估 {len(offsprings)} 个新个体...")
         for child in offsprings:
             evaluator.evaluate_individual(child)
         combined = pop.individuals + offsprings
 
+        logger.debug(f"选择下一代种群（当前合并种群大小: {len(combined)}）...")
         if len(combined) > max_population_size:
             pop.individuals = nsga.select_next_generation(combined, max_population_size)
         else:
@@ -182,6 +326,12 @@ def run_nsga2(config: Dict[str, Any]) -> Tuple[Population, List[List[int]]]:
 
         fronts = nsga.fast_nondominated_sort(pop.individuals)
         pop.front = fronts
+
+        # 输出每一代的摘要
+        _log_gen_summary(logger, gen_idx, generations, fronts, pop.individuals)
+
+    logger.info("-" * 60)
+    logger.info("进化循环完成")
 
     return pop, pop.front
 

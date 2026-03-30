@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import argparse
 import json
+import logging
 import os
 import random
 import time
@@ -79,6 +81,34 @@ def _set_random_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+
+
+def _setup_logger(save_dir: str, log_level: str = "INFO") -> logging.Logger:
+    """初始化日志系统，同时输出到终端和文件。"""
+    logger = logging.getLogger("EvoHCell-NAS")
+    logger.setLevel(getattr(logging, log_level.upper()))
+    logger.handlers.clear()
+
+    # 日志格式
+    formatter = logging.Formatter(
+        fmt="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    # 终端输出
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(getattr(logging, log_level.upper()))
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    # 文件输出
+    log_file = Path(save_dir) / "search.log"
+    file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
+    file_handler.setLevel(logging.DEBUG)  # 文件记录所有级别
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    return logger
 
 
 def _edge_to_json(edge: Any) -> list[Any]:
@@ -177,10 +207,10 @@ def _build_search_config(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _plot_pareto_front(
-    final_pop: Any,
-    fronts: list[list[int]],
-    save_dir: str,
-    maximize_score: bool,
+        final_pop: Any,
+        fronts: list[list[int]],
+        save_dir: str,
+        maximize_score: bool,
 ) -> None:
     """
     绘制帕累托前沿图并保存。
@@ -254,6 +284,25 @@ def search_candidates(args) -> list[dict[str, Any]]:
     args_ns.save_dir = save_dir
     os.makedirs(save_dir, exist_ok=True)
 
+    # 初始化日志系统
+    log_level = getattr(args_ns, "log_level", "INFO")
+    logger = _setup_logger(save_dir, log_level)
+
+    # 输出搜索开始摘要
+    logger.info("=" * 60)
+    logger.info("EvoHCell-NAS 进化搜索开始")
+    logger.info("=" * 60)
+    logger.info(f"保存目录: {save_dir}")
+    logger.info(f"进化代数: {args_ns.generations}")
+    logger.info(f"种群大小: {args_ns.population_size}")
+    logger.info(f"Zero-cost 指标: {args_ns.metric}")
+    logger.info(f"网络层数: {args_ns.layers}")
+    logger.info(f"层级交叉概率: {args_ns.pc_layer}")
+    logger.info(f"层级变异概率: {args_ns.pm_layer}")
+    logger.info(f"随机种子: {args_ns.seed}")
+    logger.info(f"最大化 score: {args_ns.maximize_score}")
+    logger.info("=" * 60)
+
     _set_random_seed(args_ns.seed)
 
     search_config = _build_search_config(args_ns)
@@ -270,7 +319,7 @@ def search_candidates(args) -> list[dict[str, Any]]:
     # 4. 交叉与变异，生成新一代种群
     # 5. 迭代多代后返回最终种群和帕累托分层结果
     # ------------------------------
-    final_pop, fronts = run_nsga2(search_config)
+    final_pop, fronts = run_nsga2(search_config, logger)
 
     maximize_score = bool(search_config.get("maximize_score", True))
     ranked_indices = _rank_candidate_indices(fronts, len(final_pop.individuals))
@@ -336,6 +385,17 @@ def search_candidates(args) -> list[dict[str, Any]]:
         maximize_score=maximize_score,
     )
 
+    # 输出最终摘要
+    first_front_size = len(fronts[0]) if fronts else 0
+    pareto_path = Path(save_dir) / "pareto_front.png"
+    logger.info("=" * 60)
+    logger.info("搜索完成，最终摘要")
+    logger.info(f"最终第一帕累托前沿大小: {first_front_size}")
+    logger.info(f"top_k 实际导出候选数: {len(candidates)}")
+    logger.info(f"top_candidates.json 已保存至: {output_path}")
+    logger.info(f"pareto_front.png 已保存至: {pareto_path}")
+    logger.info("=" * 60)
+
     return candidates, save_dir
 
 
@@ -358,16 +418,19 @@ def build_parser() -> argparse.ArgumentParser:
     # =========================
     # 搜索相关参数
     # =========================
-    parser.add_argument('--generations', type=int, default=20, help='进化代数')
-    parser.add_argument('--population_size', type=int, default=20, help='种群大小')
+    parser.add_argument('--generations', type=int, default=30, help='进化代数')
+    parser.add_argument('--population_size', type=int, default=50, help='种群大小')
     parser.add_argument('--top_k', type=int, default=5, help='返回 top-k 候选架构')
     parser.add_argument('--pc_layer', type=float, default=0.5, help='层级交叉概率')
     parser.add_argument('--pm_layer', type=float, default=0.2, help='层级变异概率')
     parser.add_argument('--layers', type=int, default=20, help='网络层数')  # 20
     parser.add_argument('--seed', type=int, default=0, help='随机种子')
-    parser.add_argument('--metric', type=str, default='synflow', choices=metric_choices, help='zero-cost 指标')
+    # grad_norm, synflow
+    parser.add_argument('--metric', type=str, default='grad_norm', choices=metric_choices, help='zero-cost 指标')
     parser.add_argument('--maximize_score', action='store_true', default=True, help='是否最大化 zero-cost score')
     parser.add_argument('--save_dir', type=str, default=None, help='结果保存目录')
+    parser.add_argument('--log_level', type=str, default='INFO', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+                        help='日志级别')
 
     return parser
 
