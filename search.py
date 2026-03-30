@@ -185,18 +185,21 @@ def _plot_pareto_front(
     """
     绘制帕累托前沿图并保存。
 
-    横轴：参数量（MB）
-    纵轴：zero-cost score
+    横轴：参数量（MB），越小越好
+    纵轴：zero-cost objective（NSGA-II 内部最小化目标），越小越好
 
     图中说明：
     - 灰色点：最终种群中的所有个体
     - 红色点：第一帕累托前沿（最优非支配解集合）
+
+    注意：此图严格按照"两个目标都最小化"的视角绘制，
+    因此前沿应朝左下方向延伸。
     """
     all_x = []
     all_y = []
     for ind in final_pop.individuals:
-        all_x.append(float(ind.fitness[1]))
-        all_y.append(_restore_zero_cost_score(ind.fitness, maximize_score))
+        all_x.append(float(ind.fitness[1]))  # params_mb
+        all_y.append(float(ind.fitness[0]))  # zero-cost objective (内部最小化目标)
 
     plt.figure(figsize=(8, 6))
     plt.scatter(all_x, all_y, alpha=0.6, label="All Individuals")
@@ -204,10 +207,7 @@ def _plot_pareto_front(
     if fronts and len(fronts[0]) > 0:
         first_front = fronts[0]
         front_x = [float(final_pop.individuals[idx].fitness[1]) for idx in first_front]
-        front_y = [
-            _restore_zero_cost_score(final_pop.individuals[idx].fitness, maximize_score)
-            for idx in first_front
-        ]
+        front_y = [float(final_pop.individuals[idx].fitness[0]) for idx in first_front]
 
         # 为了让前沿线更清晰，按参数量从小到大排序
         sorted_pairs = sorted(zip(front_x, front_y), key=lambda x: x[0])
@@ -218,8 +218,8 @@ def _plot_pareto_front(
         plt.plot(front_x_sorted, front_y_sorted)
 
     plt.xlabel("Params (MB)")
-    plt.ylabel("Zero-cost Score")
-    plt.title("Pareto Front of Evolution Search")
+    plt.ylabel("Zero-cost Objective (minimize)")
+    plt.title("Pareto Front of Evolution Search (Minimization View)")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
@@ -298,6 +298,7 @@ def search_candidates(args) -> list[dict[str, Any]]:
             "front_rank": front_rank,
             "genotype_list": genotype_json_list,
             "zero_cost_score": _restore_zero_cost_score(ind.fitness, maximize_score),
+            "zero_cost_objective": float(ind.fitness[0]),  # 内部最小化目标，用于 Pareto 绘图
             "params_mb": float(ind.fitness[1]),
             "fitness": [float(x) for x in ind.fitness],
         }
