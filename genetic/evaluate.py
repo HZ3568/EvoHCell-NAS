@@ -18,10 +18,10 @@ from zero_cost.zero_utils import _measure_impls
 class Evaluator:
     def __init__(self, config: Optional[dict] = None):
         self.config = config or {}
-        self.metric = self.config.get("metric", "synflow")
-        self.C = int(self.config.get("C", 16))
+        self.metric = self.config.get("metric", "grad_norm")
+        self.C = int(self.config.get("init_channels", 36))
         self.num_classes = int(self.config.get("num_classes", 10))
-        self.layers = int(self.config.get("layers", 8))
+        self.layers = int(self.config.get("layers", 20))
         self.auxiliary = bool(self.config.get("auxiliary", True))
         self.maximize_score = bool(self.config.get("maximize_score", True))
         self.batch_size = int(self.config.get("batch_size", 64))

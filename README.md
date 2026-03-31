@@ -62,8 +62,7 @@ python real_train.py \
 
 
 ## 🔜 TODO
-- [x] 修改pareto_front
 - [ ] pipline.py
+- [ ] 修改train的输出日志
 - [ ] 检查search的逻辑
-- [ ] 再次研究zero_cost
 - [ ] 设计交叉和变异算法

@@ -139,11 +139,11 @@ def _edges_to_inline_str(edges: list[list[Any]]) -> str:
     return "[" + ", ".join(f"({op},{idx})" for op, idx in edges) + "]"
 
 
-def _attach_readable_genotype_fields(genotype_dict: dict[str, Any]) -> dict[str, Any]:
-    """为 genotype 增加便于查看的一行字符串字段。"""
-    genotype_dict["normal_str"] = _edges_to_inline_str(genotype_dict["normal"])
-    genotype_dict["reduce_str"] = _edges_to_inline_str(genotype_dict["reduce"])
-    return genotype_dict
+def _genotype_to_readable_str(genotype_dict: dict[str, Any]) -> str:
+    """将 genotype 转换为可读的字符串形式。"""
+    normal_str = _edges_to_inline_str(genotype_dict["normal"])
+    reduce_str = _edges_to_inline_str(genotype_dict["reduce"])
+    return f"normal: {normal_str}\nreduce: {reduce_str}"
 
 
 def _restore_zero_cost_score(fitness: list[float], maximize_score: bool) -> float:
@@ -202,6 +202,7 @@ def _build_search_config(args: argparse.Namespace) -> dict[str, Any]:
         "seed": args.seed,
         "metric": args.metric,
         "layers": args.layers,
+        "init_channels": args.init_channels,
         "maximize_score": args.maximize_score,
     }
 
@@ -332,7 +333,6 @@ def search_candidates(args) -> list[dict[str, Any]]:
         genotype_json_list = []
         for g in ind.genotype:
             g_json = _genotype_to_json_dict(g)
-            g_json = _attach_readable_genotype_fields(g_json)
             genotype_json_list.append(g_json)
 
         # 记录当前个体属于第几层帕累托前沿
@@ -378,6 +378,51 @@ def search_candidates(args) -> list[dict[str, Any]]:
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
+    # 生成人工可读的文本文件
+    readable_path = Path(save_dir) / "top_candidates_readable.txt"
+    with open(readable_path, "w", encoding="utf-8") as f:
+        f.write("=" * 80 + "\n")
+        f.write("EvoHCell-NAS 搜索结果 - 可读格式\n")
+        f.write("=" * 80 + "\n\n")
+        f.write(f"搜索配置:\n")
+        f.write(f"  - 指标: {args_ns.metric}\n")
+        f.write(f"  - 进化代数: {args_ns.generations}\n")
+        f.write(f"  - 种群大小: {args_ns.population_size}\n")
+        f.write(f"  - 网络层数: {args_ns.layers}\n")
+        f.write(f"  - 随机种子: {args_ns.seed}\n\n")
+
+        for candidate in candidates:
+            f.write("=" * 80 + "\n")
+            f.write(f"候选架构 #{candidate['id']}\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Pareto 前沿层级: {candidate['front_rank']}\n")
+            f.write(f"Zero-cost Score: {candidate['zero_cost_score']:.6f}\n")
+            f.write(f"参数量 (MB): {candidate['params_mb']:.4f}\n\n")
+
+            for layer_idx, genotype_dict in enumerate(candidate['genotype_list']):
+                f.write(f"Layer {layer_idx}:\n")
+                f.write(f"  normal: {_edges_to_inline_str(genotype_dict['normal'])}\n")
+                f.write(f"  reduce: {_edges_to_inline_str(genotype_dict['reduce'])}\n")
+            f.write("\n")
+
+    # 为每个候选单独导出 JSON 文件
+    for candidate in candidates:
+        candidate_file = Path(save_dir) / f"candidate_{candidate['id']}.json"
+        candidate_data = {
+            "id": candidate["id"],
+            "front_rank": candidate["front_rank"],
+            "genotype_list": candidate["genotype_list"],
+            "zero_cost_score": candidate["zero_cost_score"],
+            "params_mb": candidate["params_mb"],
+            "meta": {
+                "metric": args_ns.metric,
+                "layers": args_ns.layers,
+                "seed": args_ns.seed,
+            }
+        }
+        with open(candidate_file, "w", encoding="utf-8") as f:
+            json.dump(candidate_data, f, ensure_ascii=False, indent=2)
+
     _plot_pareto_front(
         final_pop=final_pop,
         fronts=fronts,
@@ -393,6 +438,8 @@ def search_candidates(args) -> list[dict[str, Any]]:
     logger.info(f"最终第一帕累托前沿大小: {first_front_size}")
     logger.info(f"top_k 实际导出候选数: {len(candidates)}")
     logger.info(f"top_candidates.json 已保存至: {output_path}")
+    logger.info(f"top_candidates_readable.txt 已保存至: {readable_path}")
+    logger.info(f"单独候选文件已保存至: {save_dir}/candidate_*.json")
     logger.info(f"pareto_front.png 已保存至: {pareto_path}")
     logger.info("=" * 60)
 
@@ -424,6 +471,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--pc_layer', type=float, default=0.5, help='层级交叉概率')
     parser.add_argument('--pm_layer', type=float, default=0.2, help='层级变异概率')
     parser.add_argument('--layers', type=int, default=20, help='网络层数')  # 20
+    parser.add_argument('----init_channels', type=int, default=36, help='search阶段的初始通道数')
     parser.add_argument('--seed', type=int, default=0, help='随机种子')
     # grad_norm, synflow
     parser.add_argument('--metric', type=str, default='grad_norm', choices=metric_choices, help='zero-cost 指标')

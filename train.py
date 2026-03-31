@@ -40,12 +40,12 @@ parser.add_argument('--save', type=str, default='train', help='experiment name')
 parser.add_argument('--seed', type=int, default=0, help='random seed')
 parser.add_argument('--arch', type=str, default=None, help='genotype name in darts/genotypes.py')
 parser.add_argument('--genotype_json', type=str, default=None,
-                    help='path to a json file that stores hetero genotype_list')
+                    help='path to a single candidate json file (e.g., candidate_0.json)')
 parser.add_argument('--grad_clip', type=float, default=5, help='gradient clipping')
 parser.add_argument('--num_workers', type=int, default=2, help='num of data loader workers')
 args = parser.parse_args()
 
-args.save = './results/{}-{}'.format(args.save, "123")
+args.save = './results/{}-{}'.format(args.save, "777")
 utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
 
 log_format = '%(asctime)s %(message)s'
@@ -70,11 +70,13 @@ def dict_to_genotype(gdict):
 
 def load_genotype_list():
     """
-    支持三种输入：
-    1. --arch DARTS
-    2. genotype_json 顶层就是 list
-    3. genotype_json 顶层包含 genotype_list
-    4. genotype_json 顶层包含 candidates（search.py 导出格式），默认取第一个候选
+    支持两种输入方式：
+    1. --arch <name>: 从 darts/genotypes.py 加载预定义架构
+    2. --genotype_json <path>: 从单个候选 JSON 文件加载（如 candidate_0.json）
+
+    JSON 文件格式要求：
+    - 顶层直接是 genotype list，或
+    - 顶层包含 "genotype_list" 字段
     """
     if args.arch is not None:
         if not hasattr(genotypes, args.arch):
@@ -90,26 +92,14 @@ def load_genotype_list():
         if isinstance(data, list):
             return [dict_to_genotype(g) if isinstance(g, dict) else g for g in data]
 
-        # 情况2：顶层包含 genotype_list
+        # 情况2：顶层包含 genotype_list（推荐格式，如 candidate_0.json）
         if isinstance(data, dict) and "genotype_list" in data:
             glist = data["genotype_list"]
             return [dict_to_genotype(g) if isinstance(g, dict) else g for g in glist]
 
-        # 情况3：顶层包含 candidates（search.py 导出的 top_candidates.json）
-        if isinstance(data, dict) and "candidates" in data:
-            candidates = data["candidates"]
-            if not candidates:
-                raise ValueError("genotype_json 中的 candidates 为空。")
-
-            first_candidate = candidates[0]
-            if "genotype_list" not in first_candidate:
-                raise ValueError("候选架构中缺少 genotype_list 字段。")
-
-            glist = first_candidate["genotype_list"]
-            return [dict_to_genotype(g) if isinstance(g, dict) else g for g in glist]
-
         raise ValueError(
-            "genotype_json 格式不正确：必须是 list，或包含 key 'genotype_list'，或包含 key 'candidates'。"
+            "genotype_json 格式不正确：必须是 list，或包含 key 'genotype_list'。\n"
+            "提示：请使用 search.py 生成的 candidate_*.json 文件，而不是 top_candidates.json。"
         )
 
     raise ValueError("You must provide either --arch or --genotype_json")
@@ -301,6 +291,13 @@ def infer(valid_queue, model, criterion, device):
     return top1.avg, objs.avg
 
 
-#  python train.py --genotype_json ./results/search_xxx/top_candidates.json
+# 使用示例：
+# 1. 使用预定义架构：
+#    python train.py --arch DARTS
+#
+# 2. 使用搜索得到的单个候选架构：
+#    python train.py --genotype_json ./results/search_xxx/candidate_0.json
+#
+# 注意：不再支持直接使用 top_candidates.json，请使用单独的 candidate_*.json 文件
 if __name__ == '__main__':
     main()
