@@ -1,9 +1,8 @@
 import numpy as np
 import time
 import uuid
-import logging
 
-from bananas.train_class import Train
+from bananas.train_subnet import Train
 
 OPS = ['none',
        'max_pool_3x3',
@@ -27,7 +26,7 @@ class Arch:
     def serialize(self):
         return self.arch
 
-    def query(self, epochs=10):  # 单个子网的训练轮数, 师姐把50改成了2, 我改为10。
+    def query(self, epochs=10):  # epochs: 单个子网的训练轮数
         trainer = Train()
         valid_accs = trainer.main(self.arch, epochs=epochs)
         val_loss = 100 - np.mean(valid_accs)

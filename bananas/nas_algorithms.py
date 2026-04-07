@@ -1,60 +1,114 @@
-import sys
-import copy
 import time
-import ast
-import logging
-
 import numpy as np
 import torch
-from argparse import Namespace
 from bananas.acquisition_functions import acq_fn
-from bananas.arch import Arch
-from bananas.data import Data
 from bananas.meta_neural_net import MetaNeuralnet
+from utils.logger_utils import setup_logger
+
+logger = setup_logger(name="arch_pool", save_dir="../results/arch_pool", level="INFO")
 
 
-def run_nas_algorithm(algo_params, search_space, mp):
-    # run nas algorithm
-    ps = copy.deepcopy(algo_params)
-    algo_name = ps.pop('algo_name')
-
-    if algo_name == 'random':
-        data = random_search(search_space, **ps)
-    elif algo_name == 'evolution':
-        data = evolution_search(search_space, **ps)
-    elif algo_name == 'bananas':
-        data = bananas(search_space, mp, **ps)
-    else:
-        print('invalid algorithm name')
-        sys.exit()
-
-    # k = 10
-    # total_queries = 150
-    # loss = 'val_loss'
+def bananas(search_space,
+            data,
+            num_init=0,
+            k=2,
+            loss='val_loss',
+            total_queries=150,
+            num_ensemble=5,
+            acq_opt_type='mutation',
+            num_arches_to_mutate=1,
+            explore_type='its',
+            encoding_type='trunc_path',
+            cutoff=40,
+            deterministic=True,
+            verbose=1, ):
+    # # 读取提前预处理的架构数据集
+    # current_dir = os.path.dirname(os.path.abspath(__file__))
+    # file_path = os.path.join(current_dir, 'trained_arch.txt')
+    # with open(file_path, 'r') as file:
+    #     lines = file.readlines()
     #
-    # if 'k' in ps:
-    #     k = ps['k']
-    # if 'total_queries' in ps:
-    #     total_queries = ps['total_queries']
-    # if 'loss' in ps:
-    #     loss = ps['loss']
+    # for i in range(0, len(lines), 3):
+    #     d = dict()
+    #     L1 = lines[i].strip()
+    #     arch_str = L1[len("arch: "):]
+    #     arch = ast.literal_eval(arch_str)
+    #
+    #     arc = Arch(arch)
+    #     encoding = arc.encode_paths()[:40]
+    #
+    #     L2 = lines[i + 1].strip()
+    #     val_loss_str = L2.split(":")[1]
+    #     val_loss = float(val_loss_str)
+    #
+    #     d['spec'] = arch
+    #     d['encoding'] = encoding
+    #     d['val_loss'] = val_loss
+    #
+    #     data.append(d)
 
-    # return compute_best_test_losses(data, k, total_queries, loss), data
-    return data
+    if len(data) == 0:
+        data = search_space.generate_random_dataset(num=num_init,
+                                                    encoding_type=encoding_type,
+                                                    cutoff=cutoff,
+                                                    deterministic_loss=deterministic)
+        query = len(data) + k
+    else:
+        query = k
 
+    new_data = []
 
-# def compute_best_test_losses(data, k, total_queries, loss):
-#     """
-#     每遍历k个样本，输出一次 具有最佳验证集误差的测试误差。
-#     """
-#     results = []
-#     for query in range(k, total_queries + k, k):
-#         best_arch = sorted(data[:query], key=lambda i: i[loss])[0]
-#         test_error = best_arch['test_loss']  # 取出当前查询次数下最小的val_loss, 然后查看它的test_loss
-#         results.append((query, test_error))
-#
-#     return results
+    while query <= total_queries:
+        logger.info("query: %d" % query)
 
+        xtrain = np.array([d['encoding'] for d in data])  # 路径编码之后的架构
+        ytrain = np.array([d[loss] for d in data])  # valid loss
+
+        if (query == num_init + k) and verbose:
+            print('bananas xtrain shape', xtrain.shape)
+            print('bananas ytrain shape', ytrain.shape)
+
+        # 通过对原架构变异的方式，得到一组候选架构，该候选架构没有被训练过
+        candidates = search_space.get_candidates(data,
+                                                 acq_opt_type=acq_opt_type,
+                                                 encoding_type=encoding_type,
+                                                 cutoff=cutoff,
+                                                 num_arches_to_mutate=num_arches_to_mutate,
+                                                 loss=loss)
+
+        xcandidates = np.array([c['encoding'] for c in candidates])
+        candidate_predictions = []
+
+        # 训练一组神经网络
+        start_time = time.time()
+        train_error = 0
+        for _ in range(num_ensemble):
+            meta_neuralnet = MetaNeuralnet()
+            train_error += meta_neuralnet.fit(xtrain, ytrain)  # xtrain的长度在逐渐增加
+
+            # 预测候选架构的valid loss
+            candidate_predictions.append(np.squeeze(meta_neuralnet.predict(xcandidates)))
+
+            del meta_neuralnet
+            torch.cuda.empty_cache()
+
+        train_error /= num_ensemble
+        logger.info("query = %d, Meta neural net train error = %f" % (query, train_error))
+        logger.info("prediction time %s" % (time.time() - start_time))
+
+        # 为所有候选解计算采集函数
+        candidate_indices = acq_fn(candidate_predictions, explore_type)
+
+        # 根据采集函数值，选出最具潜力的前 k 个架构进行真实评估
+        for i in candidate_indices[:k]:
+            arch_dict = search_space.query_arch(candidates[i]['spec'],
+                                                encoding_type=encoding_type,
+                                                cutoff=cutoff)
+            new_data.append(arch_dict)
+
+        query += k
+
+    return new_data
 
 # 已搞明白
 def random_search(search_space,
@@ -138,107 +192,7 @@ def evolution_search(search_space,
 """
 
 
-def bananas(search_space,
-            data,
-            num_init=0,
-            k=2,
-            loss='val_loss',
-            total_queries=150,
-            num_ensemble=5,
-            acq_opt_type='mutation',
-            num_arches_to_mutate=1,
-            explore_type='its',
-            encoding_type='trunc_path',
-            cutoff=40,
-            deterministic=True,
-            verbose=1, ):
-    # # 读取提前预处理的架构数据集
-    # current_dir = os.path.dirname(os.path.abspath(__file__))
-    # file_path = os.path.join(current_dir, 'trained_arch.txt')
-    # with open(file_path, 'r') as file:
-    #     lines = file.readlines()
-    #
-    # for i in range(0, len(lines), 3):
-    #     d = dict()
-    #     L1 = lines[i].strip()
-    #     arch_str = L1[len("arch: "):]
-    #     arch = ast.literal_eval(arch_str)
-    #
-    #     arc = Arch(arch)
-    #     encoding = arc.encode_paths()[:40]
-    #
-    #     L2 = lines[i + 1].strip()
-    #     val_loss_str = L2.split(":")[1]
-    #     val_loss = float(val_loss_str)
-    #
-    #     d['spec'] = arch
-    #     d['encoding'] = encoding
-    #     d['val_loss'] = val_loss
-    #
-    #     data.append(d)
 
-    if len(data) == 0:
-        data = search_space.generate_random_dataset(num=num_init,
-                                                    encoding_type=encoding_type,
-                                                    cutoff=cutoff,
-                                                    deterministic_loss=deterministic)
-        query = len(data) + k
-    else:
-        query = k
-
-    new_data = []
-
-    while query <= total_queries:
-        logging.info("query: %d" % query)
-
-        xtrain = np.array([d['encoding'] for d in data])  # 路径编码之后的架构
-        ytrain = np.array([d[loss] for d in data])  # valid loss
-
-        if (query == num_init + k) and verbose:
-            print('bananas xtrain shape', xtrain.shape)
-            print('bananas ytrain shape', ytrain.shape)
-
-        # 通过对原架构变异的方式，得到一组候选架构，该候选架构没有被训练过
-        candidates = search_space.get_candidates(data,
-                                                 acq_opt_type=acq_opt_type,
-                                                 encoding_type=encoding_type,
-                                                 cutoff=cutoff,
-                                                 num_arches_to_mutate=num_arches_to_mutate,
-                                                 loss=loss)
-
-        xcandidates = np.array([c['encoding'] for c in candidates])
-        candidate_predictions = []
-
-        # 训练一组神经网络
-        start_time = time.time()
-        train_error = 0
-        for _ in range(num_ensemble):
-            meta_neuralnet = MetaNeuralnet()
-            train_error += meta_neuralnet.fit(xtrain, ytrain)  # xtrain的长度在逐渐增加
-
-            # 预测候选架构的valid loss
-            candidate_predictions.append(np.squeeze(meta_neuralnet.predict(xcandidates)))
-
-            del meta_neuralnet
-            torch.cuda.empty_cache()
-
-        train_error /= num_ensemble
-        logging.info("query = %d, Meta neural net train error = %f" % (query, train_error))
-        logging.info("prediction time %s" % (time.time() - start_time))
-
-        # 为所有候选解计算采集函数
-        candidate_indices = acq_fn(candidate_predictions, explore_type)
-
-        # 根据采集函数值，选出最具潜力的前 k 个架构进行真实评估
-        for i in candidate_indices[:k]:
-            arch_dict = search_space.query_arch(candidates[i]['spec'],
-                                                encoding_type=encoding_type,
-                                                cutoff=cutoff)
-            new_data.append(arch_dict)
-
-        query += k
-
-    return new_data
 
 
 if __name__ == '__main__':

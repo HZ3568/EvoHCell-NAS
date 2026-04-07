@@ -5,6 +5,7 @@ import gc
 import torch.nn as nn
 import torch.utils
 import torch.backends.cudnn as cudnn
+from collections import namedtuple
 
 from darts.model import NetworkCIFAR
 from darts import utils
@@ -16,7 +17,7 @@ import torchvision.datasets as dset
 from utils.data_loader import train_transform, valid_transform
 from utils.logger_utils import setup_logger
 
-logger = setup_logger(save_dir="../results/arch_pool", level="INFO")
+logger = setup_logger(name="arch_pool", save_dir="../results/arch_pool", level="INFO")
 
 train_data = dset.CIFAR10(root='../data', train=True, download=True, transform=train_transform)
 valid_data = dset.CIFAR10(root='../data', train=False, download=True, transform=valid_transform)
@@ -75,8 +76,7 @@ class Train:
         self.seed = seed
         self.validation_set = (self.train_portion < 1)
 
-        print(f'Train class params\narch: {arch}, epochs: {epochs}, gpu: {gpu}, '
-              f'load_weights: {load_weights}, train_portion: {train_portion}')
+        print(f'Train and Valid Arch: {arch}')
 
         # ---------------- 设置设备 ----------------
         device = torch.device(f'cuda:{gpu}' if torch.cuda.is_available() else 'cpu')

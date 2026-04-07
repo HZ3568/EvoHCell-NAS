@@ -47,7 +47,7 @@ class Data:
 
         if train:
             if epochs == 0:
-                epochs = 10  # 50
+                epochs = 5  # 50
             arch_dict['val_loss'] = Arch(arch).query(epochs=epochs)
 
         return arch_dict
