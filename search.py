@@ -259,7 +259,7 @@ def search_candidates(args) -> list[dict[str, Any]]:
 
     # 初始化日志系统
     log_level = getattr(args_ns, "log_level", "INFO")
-    logger = setup_logger(save_dir, log_level)
+    logger = setup_logger(name="search", log_level)
 
     # 输出搜索开始摘要
     logger.info("=" * 60)
@@ -443,7 +443,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--pc_layer', type=float, default=0.5, help='层级交叉概率')
     parser.add_argument('--pm_layer', type=float, default=0.2, help='层级变异概率')
     parser.add_argument('--layers', type=int, default=20, help='网络层数')  # 20
-    parser.add_argument('----init_channels', type=int, default=36, help='search阶段的初始通道数')
+    parser.add_argument('--init_channels', type=int, default=36, help='search阶段的初始通道数')
     parser.add_argument('--seed', type=int, default=0, help='随机种子')
     # grad_norm, synflow
     parser.add_argument('--metric', type=str, default='grad_norm', choices=metric_choices, help='zero-cost 指标')

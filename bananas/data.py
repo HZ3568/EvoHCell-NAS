@@ -95,8 +95,6 @@ class Data:
 
     def get_candidates(self,
                        data,
-                       train_idxs,
-                       valid_idxs,
                        num=100,  # 变异的架构需要多一些，这样才能增加数据的多样性，这些数据不需要经过训练。
                        acq_opt_type='mutation',
                        encoding_type='path',
@@ -129,9 +127,7 @@ class Data:
                 for i in range(num // top_k // max_mutation_rate):
                     for rate in range(1, max_mutation_rate + 1):
                         mutated = self.mutate_arch(arch, mutation_rate=rate)
-                        arch_dict = self.query_arch(train_idxs,
-                                                    valid_idxs,
-                                                    mutated,
+                        arch_dict = self.query_arch(mutated,
                                                     train=False,  # 只采集架构，而不训练
                                                     encoding_type=encoding_type,
                                                     cutoff=cutoff)

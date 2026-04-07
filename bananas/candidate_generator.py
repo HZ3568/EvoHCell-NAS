@@ -1,20 +1,32 @@
 from bananas.nas_algorithms import bananas
 from bananas.data import Data
 from utils.convert_to_genotype import convert_to_genotype
+from pathlib import Path
 
-train_arch = []
 
-# 5 * 20 = 100
-for i in range(5):
-    data = bananas(Data('darts'), train_arch, num_init=10, k=5, total_queries=20)
-    train_arch.append(data)
+def main():
+    train_arch = []
 
-print(train_arch)
+    # 5 * 20 = 100
+    for i in range(5):
+        data = bananas(Data('darts'), train_arch, num_init=10, k=5, total_queries=20)
+        train_arch.append(data)
 
-data = sorted([(d['val_loss'], d['spec']) for d in train_arch], key=lambda d: d[0])[:30]
+    print(train_arch)
 
-# 将data存入txt文件中
-for d in data:
-    arch = convert_to_genotype(d[1])
-    with open('../results/arch_pool/arch.txt', 'a') as f:
-        f.write(str(arch) + '\n')
+    top_data = sorted(
+        [(d['val_loss'], d['spec']) for d in train_arch],
+        key=lambda d: d[0]
+    )[:30]
+
+    output_path = Path("../results/arch_pool/arch.txt")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, "a", encoding="utf-8") as f:
+        for d in top_data:
+            arch = str(convert_to_genotype(d[1]))
+            f.write(f"{arch} valid_loss:{d[0]:.4f}\n")
+
+
+if __name__ == "__main__":
+    main()

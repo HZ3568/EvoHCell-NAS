@@ -19,7 +19,7 @@ def setup_logger(name: str = "EvoHCell-NAS", save_dir: str | None = None, level:
 
     if save_dir is not None:
         Path(save_dir).mkdir(parents=True, exist_ok=True)
-        file_handler = logging.FileHandler(Path(save_dir) / "search.log", mode="w", encoding="utf-8")
+        file_handler = logging.FileHandler(Path(save_dir) / f"{name}.log", mode="w", encoding="utf-8")
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
