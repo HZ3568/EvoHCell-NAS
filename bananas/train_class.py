@@ -1,0 +1,282 @@
+import os
+import sys
+import time
+import glob
+import numpy as np
+import random
+import torch
+import logging
+import gc
+import torch.nn as nn
+import torch.utils
+import torch.backends.cudnn as cudnn
+from collections import namedtuple
+
+from darts.genotypes import PRIMITIVES
+from darts.model import NetworkCIFAR
+from darts import utils
+from data_preprocessing.data_loader import get_dataloader
+
+import torch.multiprocessing
+
+torch.multiprocessing.set_sharing_strategy('file_system')
+
+
+def convert_to_genotype(arch):
+    Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
+    op_dict = {
+        0: 'none',
+        1: 'max_pool_3x3',
+        2: 'avg_pool_3x3',
+        3: 'skip_connect',
+        4: 'sep_conv_3x3',
+        5: 'sep_conv_5x5',
+        6: 'dil_conv_3x3',
+        7: 'dil_conv_5x5'
+    }
+
+    darts_arch = [[], []]
+    i = 0
+    for cell in arch:
+        for n in cell:
+            darts_arch[i].append((op_dict[n[1]], int(n[0])))
+        i += 1
+    geno = Genotype(normal=darts_arch[0], normal_concat=[2, 3, 4, 5], reduce=darts_arch[1],
+                    reduce_concat=[2, 3, 4, 5])
+    return str(geno)
+
+
+def get_op_idx(num, sub_genotype):
+    op_name = sub_genotype[num][0]
+    res = PRIMITIVES.index(op_name)
+    return str(res)
+
+
+def get_edge_idx(num, sub_genotype):
+    edge_sum = [0, 2, 5, 9]
+    res = edge_sum[num // 2] + sub_genotype[num][1]
+    return str(res)
+
+
+def subnet_inherit_model_params(model, genotype, global_model_params):
+    # 遍历子网模型的key
+    model_state = model.state_dict()
+
+    match_cnt = 0
+    no_match_cnt = 0
+
+    for k in model_state.keys():
+
+        if "cell" in k and "preprocess" not in k:
+            parts = k.split('.')
+            prefix = '.'.join(parts[:2]) + '.'
+            suffix = '.'.join(parts[4:])
+            try:
+                edge_idx = int(parts[3])
+                if 'cells.2' in k or 'cells.5' in k:
+                    temp_k = (prefix + '_ops.' + get_edge_idx(edge_idx, genotype.reduce) +
+                              '._ops.' + get_op_idx(edge_idx, genotype.reduce) + '.' + suffix)
+                else:
+                    temp_k = (prefix + '_ops.' + get_edge_idx(edge_idx, genotype.normal) +
+                              '._ops.' + get_op_idx(edge_idx, genotype.normal) + '.' + suffix)
+            except Exception as e:
+                logging.warning(f"Parsing error for key {k}: {e}")
+                continue
+        else:
+            temp_k = k
+
+        if temp_k in global_model_params.keys():
+            model_state[k] = global_model_params[temp_k]
+            # print(f"match : {k}")
+            # print(f"match : {temp_k}")
+            match_cnt += 1
+        else:
+            # print(f"no match : {k}")
+            # print(f"no match : {temp_k}")
+            no_match_cnt += 1
+
+    print(f"match : {match_cnt}")
+    print(f"no match : {no_match_cnt}")
+    model.load_state_dict(model_state)  # 将model_state加载回模型中！
+    return model
+
+
+class Train:
+
+    def __init__(self):
+        self.learning_rate = 0.025
+        self.momentum = 0.9
+        self.weight_decay = 3e-4
+        self.load_weights = 0
+        self.report_freq = 50
+        self.gpu = 0
+        self.epochs = 600
+        self.init_channels = 16  # 36
+        self.layers = 8  # 20
+        self.model_path = 'saved_models'
+        self.auxiliary = False  # True
+        self.auxiliary_weight = 0.4
+        self.cutout = True
+        self.cutout_length = 16
+        self.drop_path_prob = 0.2
+        self.save = 'EXP'
+        self.seed = 0
+        self.arch = 'BANANAS'
+        self.grad_clip = 5
+        self.train_portion = 0.7
+        self.validation_set = True
+        self.CIFAR_CLASSES = 100  # cifar10 = 10, cifar100 = 100
+
+    def main(self, arch, train_idxs, valid_idxs, epochs=600, gpu=0, load_weights=False, train_portion=0.7, seed=0):
+
+        # ---------------- 参数设定 ----------------
+        self.arch = arch
+        self.epochs = epochs
+        self.load_weights = load_weights
+        self.gpu = gpu
+        self.train_portion = train_portion  # train : valid = 7 : 3
+        self.seed = seed
+        self.validation_set = (self.train_portion < 1)
+
+        print(f'Train class params\narch: {arch}, epochs: {epochs}, gpu: {gpu}, '
+              f'load_weights: {load_weights}, train_portion: {train_portion}')
+
+        # ---------------- 设置设备 ----------------
+        device = torch.device(f'cuda:{gpu}' if torch.cuda.is_available() else 'cpu')
+        if not torch.cuda.is_available():
+            logging.info('no gpu device available')
+            torch.manual_seed(seed)
+        else:
+            torch.cuda.manual_seed_all(seed)
+            random.seed(seed)
+            torch.manual_seed(seed)
+            cudnn.benchmark = False
+            cudnn.enabled = True
+            cudnn.deterministic = True
+            logging.info('gpu device = %d' % gpu)
+
+        # ---------------- 模型定义 ----------------
+        Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
+        genotype = eval(convert_to_genotype(arch))
+        model = NetworkCIFAR(self.init_channels, self.CIFAR_CLASSES, self.layers, self.auxiliary, genotype)  # 子网模型
+        model = model.to(device)
+
+        # 子网权重继承(继承权重之后，也可能会影响子网的真实性能，去掉！)
+        # current_dir = os.path.dirname(os.path.abspath(__file__))
+        # model_path = os.path.join(current_dir, 'model.pth')
+        # sup_model = torch.load(model_path, map_location=device)
+        # model = subnet_inherit_model_params(model, genotype, sup_model.state_dict())
+
+        logging.info("param size = %fMB", utils.count_parameters_in_MB(model))
+
+        criterion = nn.CrossEntropyLoss().to(device)
+        optimizer = torch.optim.SGD(
+            model.parameters(), self.learning_rate,
+            momentum=self.momentum, weight_decay=self.weight_decay)
+
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(epochs))
+
+        train_queue = train_idxs
+        valid_queue = valid_idxs
+
+        logging.info("train local batch number: %d" % len(train_queue))
+        logging.info("valid local batch number: %d" % len(valid_queue))
+
+        # ---------------- 正式训练 ----------------
+        valid_accs = []
+
+        for epoch in range(epochs):  # epochs = 10
+            model.drop_path_prob = self.drop_path_prob * epoch / epochs
+
+            train_acc, train_obj = self.train(train_queue, model, criterion, optimizer)
+            logging.info('train_class: epoch = %d, train_acc %f', epoch, train_acc)
+
+            if self.validation_set:
+                valid_acc, valid_obj = self.infer(valid_queue, model, criterion)
+                logging.info('train_class: epoch = %d, valid_acc %f', epoch, valid_acc)
+            else:
+                valid_acc, valid_obj = 0, 0
+
+            scheduler.step()  # 放在 optimizer.step() 之后
+
+            if epoch in list(range(max(0, epochs - 5), epochs)):  # range(n-5, n), 对后5个val_acc取平均，以此为评判标准
+                valid_accs.append(valid_acc)
+
+        val_sum = sum(100 - val_acc for val_acc in valid_accs)
+        val_loss_avg = val_sum / len(valid_accs)
+        logging.info('average valid loss: %f', val_loss_avg)
+
+        del model
+        torch.cuda.empty_cache()
+        gc.collect()
+        return valid_accs
+
+    """
+        valid的作用：用valid验证train的效果。这个需要保留。
+        test的作用：取出当前查询次数下最小的val_loss, 然后查看它的test_loss。
+    """
+
+    def train(self, train_queue, model, criterion, optimizer):
+        objs = utils.AvgrageMeter()
+        top1 = utils.AvgrageMeter()
+        top5 = utils.AvgrageMeter()
+        model.train()
+
+        device = torch.device(f'cuda:{self.gpu}' if torch.cuda.is_available() else 'cpu')
+
+        for step, (input, target) in enumerate(train_queue):
+            input = input.to(device)
+            target = target.to(device)
+
+            optimizer.zero_grad()
+            logits = model(input)
+            loss = criterion(logits, target)
+
+            # if self.auxiliary:
+            #     loss_aux = criterion(logits_aux, target)
+            #     loss += self.auxiliary_weight * loss_aux
+
+            loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), self.grad_clip)
+            optimizer.step()
+
+            prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
+            n = input.size(0)
+
+            objs.update(loss.item(), n)
+            top1.update(prec1.item(), n)
+            top5.update(prec5.item(), n)
+
+        return top1.avg, objs.avg
+
+    def infer(self, valid_queue, model, criterion, test_data=False):
+        objs = utils.AvgrageMeter()
+        top1 = utils.AvgrageMeter()
+        top5 = utils.AvgrageMeter()
+        model.eval()
+        device = torch.device('cuda:{}'.format(self.gpu) if torch.cuda.is_available() else 'cpu')
+
+        with torch.no_grad():
+            for step, (input, target) in enumerate(valid_queue):
+                input = input.to(device)
+                target = target.to(device)
+
+                logits = model(input)
+                loss = criterion(logits, target)
+
+                prec1, prec5 = utils.accuracy(logits, target, topk=(1, 5))
+                n = input.size(0)
+
+                objs.update(loss.item(), n)
+                top1.update(prec1.item(), n)
+                top5.update(prec5.item(), n)
+
+        return top1.avg, objs.avg
+
+
+if __name__ == '__main__':
+    arch = ([(0, 0), (1, 6), (2, 6), (0, 7), (1, 6), (3, 2), (2, 4), (0, 2)],
+            [(0, 0), (1, 7), (1, 7), (0, 5), (3, 2), (1, 0), (3, 4), (2, 2)])
+
+    genotype = convert_to_genotype(arch)
+    print(genotype)
