@@ -1,8 +1,3 @@
-import os
-import sys
-import time
-import glob
-import numpy as np
 import random
 import torch
 import logging
@@ -15,11 +10,59 @@ from collections import namedtuple
 from darts.genotypes import PRIMITIVES
 from darts.model import NetworkCIFAR
 from darts import utils
-from data_preprocessing.data_loader import get_dataloader
-
 import torch.multiprocessing
 
 torch.multiprocessing.set_sharing_strategy('file_system')
+
+
+import torch
+import torchvision.datasets as dset
+import torchvision.transforms as transforms
+
+CIFAR_MEAN = [0.49139968, 0.48215827, 0.44653124]
+CIFAR_STD = [0.24703233, 0.24348505, 0.26158768]
+
+train_transform = transforms.Compose([
+    transforms.RandomCrop(32, padding=4),
+    transforms.RandomHorizontalFlip(),
+    transforms.ToTensor(),
+    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+])
+
+valid_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
+])
+
+train_data = dset.CIFAR10(
+    root='../data',
+    train=True,
+    download=True,
+    transform=train_transform
+)
+
+valid_data = dset.CIFAR10(
+    root='../data',
+    train=False,
+    download=True,
+    transform=valid_transform
+)
+
+train_queue = torch.utils.data.DataLoader(
+    train_data,
+    batch_size=32,
+    shuffle=True,
+    pin_memory=True,
+    num_workers=0
+)
+
+valid_queue = torch.utils.data.DataLoader(
+    valid_data,
+    batch_size=32,
+    shuffle=False,
+    pin_memory=True,
+    num_workers=0
+)
 
 
 def convert_to_genotype(arch):
@@ -46,61 +89,6 @@ def convert_to_genotype(arch):
     return str(geno)
 
 
-def get_op_idx(num, sub_genotype):
-    op_name = sub_genotype[num][0]
-    res = PRIMITIVES.index(op_name)
-    return str(res)
-
-
-def get_edge_idx(num, sub_genotype):
-    edge_sum = [0, 2, 5, 9]
-    res = edge_sum[num // 2] + sub_genotype[num][1]
-    return str(res)
-
-
-def subnet_inherit_model_params(model, genotype, global_model_params):
-    # 遍历子网模型的key
-    model_state = model.state_dict()
-
-    match_cnt = 0
-    no_match_cnt = 0
-
-    for k in model_state.keys():
-
-        if "cell" in k and "preprocess" not in k:
-            parts = k.split('.')
-            prefix = '.'.join(parts[:2]) + '.'
-            suffix = '.'.join(parts[4:])
-            try:
-                edge_idx = int(parts[3])
-                if 'cells.2' in k or 'cells.5' in k:
-                    temp_k = (prefix + '_ops.' + get_edge_idx(edge_idx, genotype.reduce) +
-                              '._ops.' + get_op_idx(edge_idx, genotype.reduce) + '.' + suffix)
-                else:
-                    temp_k = (prefix + '_ops.' + get_edge_idx(edge_idx, genotype.normal) +
-                              '._ops.' + get_op_idx(edge_idx, genotype.normal) + '.' + suffix)
-            except Exception as e:
-                logging.warning(f"Parsing error for key {k}: {e}")
-                continue
-        else:
-            temp_k = k
-
-        if temp_k in global_model_params.keys():
-            model_state[k] = global_model_params[temp_k]
-            # print(f"match : {k}")
-            # print(f"match : {temp_k}")
-            match_cnt += 1
-        else:
-            # print(f"no match : {k}")
-            # print(f"no match : {temp_k}")
-            no_match_cnt += 1
-
-    print(f"match : {match_cnt}")
-    print(f"no match : {no_match_cnt}")
-    model.load_state_dict(model_state)  # 将model_state加载回模型中！
-    return model
-
-
 class Train:
 
     def __init__(self):
@@ -125,9 +113,9 @@ class Train:
         self.grad_clip = 5
         self.train_portion = 0.7
         self.validation_set = True
-        self.CIFAR_CLASSES = 100  # cifar10 = 10, cifar100 = 100
+        self.CIFAR_CLASSES = 10  # cifar10 = 10, cifar100 = 100
 
-    def main(self, arch, train_idxs, valid_idxs, epochs=600, gpu=0, load_weights=False, train_portion=0.7, seed=0):
+    def main(self, arch, epochs=600, gpu=0, load_weights=False, train_portion=0.7, seed=0):
 
         # ---------------- 参数设定 ----------------
         self.arch = arch
@@ -161,12 +149,6 @@ class Train:
         model = NetworkCIFAR(self.init_channels, self.CIFAR_CLASSES, self.layers, self.auxiliary, genotype)  # 子网模型
         model = model.to(device)
 
-        # 子网权重继承(继承权重之后，也可能会影响子网的真实性能，去掉！)
-        # current_dir = os.path.dirname(os.path.abspath(__file__))
-        # model_path = os.path.join(current_dir, 'model.pth')
-        # sup_model = torch.load(model_path, map_location=device)
-        # model = subnet_inherit_model_params(model, genotype, sup_model.state_dict())
-
         logging.info("param size = %fMB", utils.count_parameters_in_MB(model))
 
         criterion = nn.CrossEntropyLoss().to(device)
@@ -175,9 +157,6 @@ class Train:
             momentum=self.momentum, weight_decay=self.weight_decay)
 
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(epochs))
-
-        train_queue = train_idxs
-        valid_queue = valid_idxs
 
         logging.info("train local batch number: %d" % len(train_queue))
         logging.info("valid local batch number: %d" % len(valid_queue))

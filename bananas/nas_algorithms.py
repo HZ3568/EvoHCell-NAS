@@ -1,5 +1,3 @@
-import os
-import pickle
 import sys
 import copy
 import time
@@ -26,10 +24,6 @@ def run_nas_algorithm(algo_params, search_space, mp):
         data = evolution_search(search_space, **ps)
     elif algo_name == 'bananas':
         data = bananas(search_space, mp, **ps)
-    elif algo_name == 'gp_bayesopt':
-        data = gp_bayesopt_search(search_space, **ps)
-    elif algo_name == 'dngo':
-        data = dngo_search(search_space, **ps)
     else:
         print('invalid algorithm name')
         sys.exit()
@@ -146,8 +140,6 @@ def evolution_search(search_space,
 
 def bananas(search_space,
             data,
-            train_idxs,
-            valid_idxs,
             num_init=0,
             k=2,
             loss='val_loss',
@@ -186,9 +178,7 @@ def bananas(search_space,
     #     data.append(d)
 
     if len(data) == 0:
-        data = search_space.generate_random_dataset(train_idxs,
-                                                    valid_idxs,
-                                                    num=num_init,
+        data = search_space.generate_random_dataset(num=num_init,
                                                     encoding_type=encoding_type,
                                                     cutoff=cutoff,
                                                     deterministic_loss=deterministic)
@@ -210,8 +200,6 @@ def bananas(search_space,
 
         # 通过对原架构变异的方式，得到一组候选架构，该候选架构没有被训练过
         candidates = search_space.get_candidates(data,
-                                                 train_idxs,
-                                                 valid_idxs,
                                                  acq_opt_type=acq_opt_type,
                                                  encoding_type=encoding_type,
                                                  cutoff=cutoff,
@@ -243,9 +231,7 @@ def bananas(search_space,
 
         # 根据采集函数值，选出最具潜力的前 k 个架构进行真实评估
         for i in candidate_indices[:k]:
-            arch_dict = search_space.query_arch(train_idxs,
-                                                valid_idxs,
-                                                candidates[i]['spec'],
+            arch_dict = search_space.query_arch(candidates[i]['spec'],
                                                 encoding_type=encoding_type,
                                                 cutoff=cutoff)
             new_data.append(arch_dict)
@@ -253,138 +239,6 @@ def bananas(search_space,
         query += k
 
     return new_data
-
-
-def gp_bayesopt_search(search_space,
-                       num_init=10,
-                       k=10,
-                       total_queries=150,
-                       distance='edit_distance',
-                       deterministic=True,
-                       tmpdir='./temp',
-                       max_iter=200,
-                       mode='single_process',
-                       nppred=1000):
-    """
-    Bayesian optimization with a GP prior
-    """
-    from bo.bo.probo import ProBO
-
-    # set up the path for auxiliary pickle files
-    if not os.path.exists(tmpdir):
-        os.mkdir(tmpdir)
-    aux_file_path = os.path.join(tmpdir, 'aux.pkl')
-
-    num_iterations = total_queries - num_init
-
-    # black-box function that bayesopt will optimize
-    def fn(arch):
-        return search_space.query_arch(arch, deterministic=deterministic)['val_loss']
-
-    # set all the parameters for the various BayesOpt classes
-    fhp = Namespace(fhstr='object', namestr='train')
-    domp = Namespace(dom_str='list', set_domain_list_auto=True,
-                     aux_file_path=aux_file_path,
-                     distance=distance)
-    modelp = Namespace(kernp=Namespace(ls=3., alpha=1.5, sigma=1e-5),
-                       infp=Namespace(niter=num_iterations, nwarmup=500),
-                       distance=distance, search_space=search_space.get_type())
-    amp = Namespace(am_str='mygpdistmat_ucb', nppred=nppred, modelp=modelp)
-    optp = Namespace(opt_str='rand', max_iter=max_iter)
-    makerp = Namespace(domp=domp, amp=amp, optp=optp)
-    probop = Namespace(niter=num_iterations, fhp=fhp,
-                       makerp=makerp, tmpdir=tmpdir, mode=mode)
-    data = Namespace()
-
-    # Set up initial data
-    init_data = search_space.generate_random_dataset(num=num_init,
-                                                     deterministic_loss=deterministic)
-    data.X = [d['spec'] for d in init_data]
-    data.y = np.array([[d['val_loss']] for d in init_data])
-
-    # initialize aux file
-    pairs = [(data.X[i], data.y[i]) for i in range(len(data.y))]
-    pairs.sort(key=lambda x: x[1])
-    with open(aux_file_path, 'wb') as f:
-        pickle.dump(pairs, f)
-
-    # run Bayesian Optimization
-    bo = ProBO(fn, search_space, aux_file_path, data, probop, True)
-    bo.run_bo()
-
-    # get the validation and test loss for all architectures chosen by BayesOpt
-    results = []
-    for arch in data.X:
-        archtuple = search_space.query_arch(arch)
-        results.append(archtuple)
-
-    return results
-
-
-def dngo_search(search_space,
-                num_init=10,
-                k=10,
-                loss='val_loss',
-                total_queries=150,
-                encoding_type='path',
-                cutoff=40,
-                acq_opt_type='mutation',
-                explore_type='ucb',
-                deterministic=True,
-                verbose=True):
-    from pybnn import DNGO
-    from bananas.acquisition_functions import acq_fn
-
-    def fn(arch):
-        return search_space.query_arch(arch, deterministic=deterministic)[loss]
-
-    # set up initial data
-    data = search_space.generate_random_dataset(num=num_init,
-                                                encoding_type=encoding_type,
-                                                cutoff=cutoff,
-                                                deterministic_loss=deterministic)
-
-    query = num_init + k
-
-    while query <= total_queries:
-
-        # set up data
-        x = np.array([d['encoding'] for d in data])
-        y = np.array([d[loss] for d in data])
-
-        # get a set of candidate architectures
-        candidates = search_space.get_candidates(data,
-                                                 acq_opt_type=acq_opt_type,
-                                                 encoding_type=encoding_type,
-                                                 cutoff=cutoff,
-                                                 deterministic_loss=deterministic)
-
-        xcandidates = np.array([d['encoding'] for d in candidates])
-
-        # train the model
-        model = DNGO(do_mcmc=False)
-        model.train(x, y, do_optimize=True)
-
-        predictions = model.predict(xcandidates)
-        candidate_indices = acq_fn(np.array(predictions), explore_type)
-
-        # add the k arches with the minimum acquisition function values
-        for i in candidate_indices[:k]:
-            arch_dict = search_space.query_arch(candidates[i]['spec'],
-                                                encoding_type=encoding_type,
-                                                cutoff=cutoff,
-                                                deterministic=deterministic)
-            data.append(arch_dict)
-
-        if verbose:
-            top_5_loss = sorted([(d[loss], d['epochs']) for d in data], key=lambda d: d[0])[:min(5, len(data))]
-            print('dngo, query {}, top 5 val losses (val, test, epoch): {}'.format(query, top_5_loss))
-            recent_10_loss = [(d[loss], d['epochs']) for d in data[-10:]]
-            print('dngo, query {}, most recent 10 (val, test, epoch): {}'.format(query, recent_10_loss))
-
-        query += k
-
-    return data
 
 
 if __name__ == '__main__':

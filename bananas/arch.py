@@ -27,9 +27,9 @@ class Arch:
     def serialize(self):
         return self.arch
 
-    def query(self, train_idxs, valid_idxs, epochs=10):  # 单个子网的训练轮数, 师姐把50改成了2, 我改为10。
+    def query(self, epochs=10):  # 单个子网的训练轮数, 师姐把50改成了2, 我改为10。
         trainer = Train()
-        valid_accs = trainer.main(self.arch, train_idxs, valid_idxs, epochs=epochs)
+        valid_accs = trainer.main(self.arch, epochs=epochs)
         val_loss = 100 - np.mean(valid_accs)
         return val_loss
 

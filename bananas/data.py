@@ -22,9 +22,7 @@ class Data:
         return self.search_space
 
     @staticmethod
-    def query_arch(train_idxs,
-                   valid_idxs,
-                   arch=None,
+    def query_arch(arch=None,
                    train=True,
                    encoding_type='path',
                    cutoff=-1,
@@ -50,7 +48,7 @@ class Data:
         if train:
             if epochs == 0:
                 epochs = 10  # 50
-            arch_dict['val_loss'] = Arch(arch).query(train_idxs, valid_idxs, epochs=epochs)
+            arch_dict['val_loss'] = Arch(arch).query(epochs=epochs)
 
         return arch_dict
 
@@ -64,8 +62,6 @@ class Data:
             return Arch(arch).get_path_indices()[0]
 
     def generate_random_dataset(self,
-                                train_idxs,
-                                valid_idxs,
                                 num=10,
                                 train=True,
                                 encoding_type='path',
@@ -86,9 +82,7 @@ class Data:
             if tries_left <= 0:
                 break
             logging.info('arch idx = %d', len(data))
-            arch_dict = self.query_arch(train_idxs,
-                                        valid_idxs,
-                                        train=train,
+            arch_dict = self.query_arch(train=train,
                                         encoding_type=encoding_type,
                                         cutoff=cutoff)
 
