@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 
-from darts.genotypes import Genotype
+from utils.logger_utils import setup_logger
 
 
 def _available_metrics() -> list[str]:
@@ -81,34 +81,6 @@ def _set_random_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-
-
-def _setup_logger(save_dir: str, log_level: str = "INFO") -> logging.Logger:
-    """初始化日志系统，同时输出到终端和文件。"""
-    logger = logging.getLogger("EvoHCell-NAS")
-    logger.setLevel(getattr(logging, log_level.upper()))
-    logger.handlers.clear()
-
-    # 日志格式
-    formatter = logging.Formatter(
-        fmt="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-
-    # 终端输出
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(getattr(logging, log_level.upper()))
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-
-    # 文件输出
-    log_file = Path(save_dir) / "search.log"
-    file_handler = logging.FileHandler(log_file, mode="w", encoding="utf-8")
-    file_handler.setLevel(logging.DEBUG)  # 文件记录所有级别
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-
-    return logger
 
 
 def _edge_to_json(edge: Any) -> list[Any]:
@@ -287,7 +259,7 @@ def search_candidates(args) -> list[dict[str, Any]]:
 
     # 初始化日志系统
     log_level = getattr(args_ns, "log_level", "INFO")
-    logger = _setup_logger(save_dir, log_level)
+    logger = setup_logger(save_dir, log_level)
 
     # 输出搜索开始摘要
     logger.info("=" * 60)

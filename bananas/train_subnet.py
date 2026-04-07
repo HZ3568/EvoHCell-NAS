@@ -5,52 +5,25 @@ import gc
 import torch.nn as nn
 import torch.utils
 import torch.backends.cudnn as cudnn
-from collections import namedtuple
 
-from darts.genotypes import PRIMITIVES
 from darts.model import NetworkCIFAR
 from darts import utils
 import torch.multiprocessing
 
 torch.multiprocessing.set_sharing_strategy('file_system')
-
-
-import torch
+from utils.convert_to_genotype import convert_to_genotype
 import torchvision.datasets as dset
-import torchvision.transforms as transforms
+from utils.data_loader import train_transform, valid_transform
+from utils.logger_utils import setup_logger
 
-CIFAR_MEAN = [0.49139968, 0.48215827, 0.44653124]
-CIFAR_STD = [0.24703233, 0.24348505, 0.26158768]
+logger = setup_logger(save_dir="../results/arch_pool", level="INFO")
 
-train_transform = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
-])
-
-valid_transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize(CIFAR_MEAN, CIFAR_STD),
-])
-
-train_data = dset.CIFAR10(
-    root='../data',
-    train=True,
-    download=True,
-    transform=train_transform
-)
-
-valid_data = dset.CIFAR10(
-    root='../data',
-    train=False,
-    download=True,
-    transform=valid_transform
-)
+train_data = dset.CIFAR10(root='../data', train=True, download=True, transform=train_transform)
+valid_data = dset.CIFAR10(root='../data', train=False, download=True, transform=valid_transform)
 
 train_queue = torch.utils.data.DataLoader(
     train_data,
-    batch_size=32,
+    batch_size=96,
     shuffle=True,
     pin_memory=True,
     num_workers=0
@@ -58,35 +31,11 @@ train_queue = torch.utils.data.DataLoader(
 
 valid_queue = torch.utils.data.DataLoader(
     valid_data,
-    batch_size=32,
+    batch_size=96,
     shuffle=False,
     pin_memory=True,
     num_workers=0
 )
-
-
-def convert_to_genotype(arch):
-    Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
-    op_dict = {
-        0: 'none',
-        1: 'max_pool_3x3',
-        2: 'avg_pool_3x3',
-        3: 'skip_connect',
-        4: 'sep_conv_3x3',
-        5: 'sep_conv_5x5',
-        6: 'dil_conv_3x3',
-        7: 'dil_conv_5x5'
-    }
-
-    darts_arch = [[], []]
-    i = 0
-    for cell in arch:
-        for n in cell:
-            darts_arch[i].append((op_dict[n[1]], int(n[0])))
-        i += 1
-    geno = Genotype(normal=darts_arch[0], normal_concat=[2, 3, 4, 5], reduce=darts_arch[1],
-                    reduce_concat=[2, 3, 4, 5])
-    return str(geno)
 
 
 class Train:
@@ -158,8 +107,8 @@ class Train:
 
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, float(epochs))
 
-        logging.info("train local batch number: %d" % len(train_queue))
-        logging.info("valid local batch number: %d" % len(valid_queue))
+        logger.info("train local batch number: %d" % len(train_queue))
+        logger.info("valid local batch number: %d" % len(valid_queue))
 
         # ---------------- 正式训练 ----------------
         valid_accs = []
@@ -168,13 +117,10 @@ class Train:
             model.drop_path_prob = self.drop_path_prob * epoch / epochs
 
             train_acc, train_obj = self.train(train_queue, model, criterion, optimizer)
-            logging.info('train_class: epoch = %d, train_acc %f', epoch, train_acc)
+            logger.info('epoch = %d, train_acc = %.2f, train_loss = %.2f', epoch, train_acc, train_obj)
 
-            if self.validation_set:
-                valid_acc, valid_obj = self.infer(valid_queue, model, criterion)
-                logging.info('train_class: epoch = %d, valid_acc %f', epoch, valid_acc)
-            else:
-                valid_acc, valid_obj = 0, 0
+            valid_acc, valid_obj = self.infer(valid_queue, model, criterion)
+            logger.info('epoch = %d, valid_acc = %.2f, valid_loss = %.2f', epoch, valid_acc, valid_obj)
 
             scheduler.step()  # 放在 optimizer.step() 之后
 
@@ -183,7 +129,7 @@ class Train:
 
         val_sum = sum(100 - val_acc for val_acc in valid_accs)
         val_loss_avg = val_sum / len(valid_accs)
-        logging.info('average valid loss: %f', val_loss_avg)
+        logger.info('average valid loss: %f', val_loss_avg)
 
         del model
         torch.cuda.empty_cache()
@@ -251,11 +197,3 @@ class Train:
                 top5.update(prec5.item(), n)
 
         return top1.avg, objs.avg
-
-
-if __name__ == '__main__':
-    arch = ([(0, 0), (1, 6), (2, 6), (0, 7), (1, 6), (3, 2), (2, 4), (0, 2)],
-            [(0, 0), (1, 7), (1, 7), (0, 5), (3, 2), (1, 0), (3, 4), (2, 2)])
-
-    genotype = convert_to_genotype(arch)
-    print(genotype)
