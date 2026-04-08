@@ -10,7 +10,7 @@ def main():
     # 5 * 20 = 100
     for i in range(5):
         data = bananas(Data('darts'), train_arch, num_init=10, k=5, total_queries=20)
-        train_arch.append(data)
+        train_arch.extend(data)
 
     print(train_arch)
 
