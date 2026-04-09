@@ -1,11 +1,11 @@
 import time
 import numpy as np
 import torch
+import logging
 from bananas.acquisition_functions import acq_fn
 from bananas.meta_neural_net import MetaNeuralnet
-from utils.logger_utils import setup_logger
 
-logger = setup_logger(name="arch_pool", save_dir="../results/arch_pool", level="INFO")
+logger = logging.getLogger("arch_pool")
 
 
 def bananas(search_space,
@@ -110,6 +110,7 @@ def bananas(search_space,
 
     return new_data
 
+
 # 已搞明白
 def random_search(search_space,
                   total_queries=150,
@@ -190,10 +191,6 @@ def evolution_search(search_space,
     核心思想
     通过训练Meta Neural Network来预测不同网络架构的性能，然后用贝叶斯优化方法选出最可能优异的结构进行评估，从而高效探索架构空间。
 """
-
-
-
-
 
 if __name__ == '__main__':
     # datas = []

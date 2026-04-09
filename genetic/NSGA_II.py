@@ -253,10 +253,10 @@ def run_nsga2(config: Dict[str, Any], logger: Optional[logging.Logger] = None) -
         logger = logging.getLogger("EvoHCell-NAS")
 
     cfg = config.copy()
-    if "init_population_path" not in cfg:
-        cfg["init_population_path"] = str(Path(__file__).with_name("init_population.txt"))
-    init_pop_size = int(cfg.get("init_pop_size", cfg.get("population_size", 20)))
-    max_population_size = int(cfg.get("population_size", 20))
+    cfg["init_population_path"] = str(Path(__file__).with_name("init_population.txt"))
+    with open(cfg.get("init_population_path"), "r", encoding="utf-8") as f:
+        init_pop_size = sum(1 for line in f if line.strip())
+    max_population_size = int(cfg.get("population_size", init_pop_size))
     generations = int(cfg.get("generations", 20))
     parent_pool_size = int(cfg.get("parent_pool_size", 10))
     crossover_rounds = int(cfg.get("crossover_rounds", 10))

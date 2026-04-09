@@ -1,10 +1,6 @@
 import os
-import sys
-import time
-import glob
 import json
 import random
-import logging
 import argparse
 
 import numpy as np
@@ -36,7 +32,7 @@ parser.add_argument('--auxiliary_weight', type=float, default=0.4, help='weight 
 parser.add_argument('--cutout', action='store_true', default=False, help='use cutout')
 parser.add_argument('--cutout_length', type=int, default=16, help='cutout length')
 parser.add_argument('--drop_path_prob', type=float, default=0.2, help='drop path probability')
-parser.add_argument('--save', type=str, default='train', help='experiment name')
+parser.add_argument('--save_dir', type=str, default=None, help='experiment name')
 parser.add_argument('--seed', type=int, default=0, help='random seed')
 parser.add_argument('--arch', type=str, default=None, help='genotype name in darts/genotypes.py')
 parser.add_argument('--genotype_json', type=str, default=None,
@@ -45,16 +41,7 @@ parser.add_argument('--grad_clip', type=float, default=5, help='gradient clippin
 parser.add_argument('--num_workers', type=int, default=2, help='num of data loader workers')
 args = parser.parse_args()
 
-args.save = './results/{}-{}'.format(args.save, "777")
-utils.create_exp_dir(args.save, scripts_to_save=glob.glob('*.py'))
-
-log_format = '%(asctime)s %(message)s'
-logging.basicConfig(stream=sys.stdout, level=logging.INFO,
-                    format=log_format, datefmt='%m/%d %I:%M:%S %p')
-fh = logging.FileHandler(os.path.join(args.save, 'log.txt'))
-fh.setFormatter(logging.Formatter(log_format))
-logging.getLogger().addHandler(fh)
-
+logger = None
 CIFAR_CLASSES = 10
 
 
@@ -109,6 +96,10 @@ def main():
     np.random.seed(args.seed)
     random.seed(args.seed)
 
+    args.save_dir = utils.create_exp_dir(stage="train")
+    global logger
+    logger = utils.setup_logger(name="train", save_dir=args.save_dir, level="INFO")
+
     if torch.cuda.is_available():
         torch.cuda.set_device(args.gpu)
         device = torch.device(f'cuda:{args.gpu}')
@@ -118,13 +109,13 @@ def main():
         torch.manual_seed(args.seed)
         torch.cuda.manual_seed(args.seed)
         torch.cuda.manual_seed_all(args.seed)
-        logging.info('gpu device = %d', args.gpu)
+        logger.info('gpu device = %d', args.gpu)
     else:
         device = torch.device('cpu')
         torch.manual_seed(args.seed)
-        logging.info('No gpu device available, using cpu')
+        logger.info('No gpu device available, using cpu')
 
-    logging.info("args = %s", args)
+    logger.info("args = %s", args)
 
     genotype_list = load_genotype_list()
     if len(genotype_list) != args.layers:
@@ -141,9 +132,9 @@ def main():
     )
     model = model.to(device)
 
-    logging.info("param size = %fMB", utils.count_parameters_in_MB(model))
+    logger.info("param size = %fMB", utils.count_parameters_in_MB(model))
     total_params = sum(x.data.nelement() for x in model.parameters())
-    logging.info('Model total parameters: %d', total_params)
+    logger.info('Model total parameters: %d', total_params)
 
     criterion = nn.CrossEntropyLoss().to(device)
 
@@ -200,25 +191,25 @@ def main():
 
     for epoch in range(args.epochs):
         current_lr = scheduler.get_last_lr()[0]
-        logging.info('epoch %d lr %e', epoch, current_lr)
+        logger.info('epoch %d lr %e', epoch, current_lr)
 
         model.drop_path_prob = args.drop_path_prob * epoch / args.epochs
 
         train_acc, train_obj = train(train_queue, model, criterion, optimizer, device)
-        logging.info('train_loss %.4f train_acc %.2f', train_obj, train_acc)
+        logger.info('train_loss %.4f train_acc %.2f', train_obj, train_acc)
 
         valid_acc, valid_obj = infer(valid_queue, model, criterion, device)
-        logging.info('valid_loss %.4f valid_acc %.2f', valid_obj, valid_acc)
+        logger.info('valid_loss %.4f valid_acc %.2f', valid_obj, valid_acc)
 
         scheduler.step()
 
-        utils.save(model, os.path.join(args.save, 'weights.pt'))
+        utils.save(model, os.path.join(args.save_dir, 'weights.pt'))
 
         if valid_acc > best_valid_acc:
             best_valid_acc = valid_acc
-            utils.save(model, os.path.join(args.save, 'best_weights.pt'))
+            utils.save(model, os.path.join(args.save_dir, 'best_weights.pt'))
 
-    logging.info('best_valid_acc %f', best_valid_acc)
+    logger.info('best_valid_acc %f', best_valid_acc)
 
 
 def train(train_queue, model, criterion, optimizer, device):
@@ -255,7 +246,7 @@ def train(train_queue, model, criterion, optimizer, device):
         top5.update(prec5.item(), n)
 
         if step % args.report_freq == 0:
-            logging.info('train step=%03d loss=%.4f top1=%.2f top5=%.2f', step, objs.avg, top1.avg, top5.avg)
+            logger.info('train step=%03d loss=%.4f top1=%.2f top5=%.2f', step, objs.avg, top1.avg, top5.avg)
 
     return top1.avg, objs.avg
 
@@ -286,18 +277,13 @@ def infer(valid_queue, model, criterion, device):
             top5.update(prec5.item(), n)
 
             if step % args.report_freq == 0:
-                logging.info('valid step=%03d loss=%.4f top1=%.2f top5=%.2f', step, objs.avg, top1.avg, top5.avg)
+                logger.info('valid step=%03d loss=%.4f top1=%.2f top5=%.2f', step, objs.avg, top1.avg, top5.avg)
 
     return top1.avg, objs.avg
 
 
 # 使用示例：
-# 1. 使用预定义架构：
-#    python train.py --arch DARTS
-#
-# 2. 使用搜索得到的单个候选架构：
-#    python train.py --genotype_json ./results/search_xxx/candidate_0.json
-#
-# 注意：不再支持直接使用 top_candidates.json，请使用单独的 candidate_*.json 文件
+# python train.py --genotype_json ./results/search_xxx/candidate_0.json
+
 if __name__ == '__main__':
     main()

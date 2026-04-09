@@ -15,9 +15,8 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 from utils.convert_to_genotype import convert_to_genotype
 import torchvision.datasets as dset
 from utils.data_loader import train_transform, valid_transform
-from utils.logger_utils import setup_logger
 
-logger = setup_logger(name="arch_pool", save_dir="../results/arch_pool", level="INFO")
+logger = logging.getLogger("arch_pool")
 
 train_data = dset.CIFAR10(root='../data', train=True, download=True, transform=train_transform)
 valid_data = dset.CIFAR10(root='../data', train=False, download=True, transform=valid_transform)

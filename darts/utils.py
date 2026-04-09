@@ -1,10 +1,10 @@
 import os
-import shutil
-
-import numpy as np
+import time
 import torch
+import numpy as np
 import torchvision.transforms as transforms
-from torch.autograd import Variable
+import logging
+from pathlib import Path
 
 
 class AvgrageMeter(object):
@@ -22,20 +22,6 @@ class AvgrageMeter(object):
         self.cnt += n
         self.avg = self.sum / self.cnt
 
-
-# def accuracy(output, target, topk=(1,)):
-#     maxk = max(topk)
-#     t1, t5 = topk
-#     batch_size = target.size(0)
-#
-#     _, pred = output.topk(maxk, 1, True, True)  # 思考topk函数的含义
-#     pred = pred.t()
-#     correct = pred.eq(target.view(1, -1).expand_as(pred))
-#
-#     # top1
-#     correct_1 = correct[:t1].view(-1).float().sum(0)
-#     res = correct_1.mul_(100.0 / batch_size)
-#     return res
 
 def accuracy(output, target, topk=(1,)):
     maxk = max(topk)
@@ -98,14 +84,6 @@ def count_parameters_in_MB(model):
     return np.sum(np.prod(v.size()) for name, v in model.named_parameters() if "auxiliary" not in name) / 1e6
 
 
-def save_checkpoint(state, is_best, save):
-    filename = os.path.join(save, 'checkpoint.pth.tar')
-    torch.save(state, filename)
-    if is_best:
-        best_filename = os.path.join(save, 'model_best.pth.tar')
-        shutil.copyfile(filename, best_filename)
-
-
 def save(model, model_path):
     torch.save(model.state_dict(), model_path)
 
@@ -113,14 +91,6 @@ def save(model, model_path):
 def load(model, model_path):
     model.load_state_dict(torch.load(model_path))
 
-
-# def drop_path(x, drop_prob):
-#     if drop_prob > 0.:
-#         keep_prob = 1. - drop_prob
-#         mask = Variable(torch.cuda.FloatTensor(x.size(0), 1, 1, 1).bernoulli_(keep_prob))
-#         x.div_(keep_prob)
-#         x.mul_(mask)
-#     return x
 
 def drop_path(x, drop_prob):
     if drop_prob > 0.:
@@ -130,14 +100,38 @@ def drop_path(x, drop_prob):
     return x
 
 
-def create_exp_dir(path, scripts_to_save=None):
+def create_exp_dir(stage) -> str:
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    project_root = Path(__file__).resolve().parent.parent  # 项目根目录
+    path = project_root / "results" / f"{stage}_{timestamp}"
+
     if not os.path.exists(path):
         os.makedirs(path, exist_ok=True)
-    print('Experiment dir : {}'.format(path))
 
-    if scripts_to_save is not None:
-        scripts_dir = os.path.join(path, 'scripts')
-        os.makedirs(scripts_dir, exist_ok=True)
-        for script in scripts_to_save:
-            dst_file = os.path.join(path, 'scripts', os.path.basename(script))
-            shutil.copyfile(script, dst_file)
+    return str(path)
+
+
+def setup_logger(name: str, save_dir: str | None = None, level: str = "INFO"):
+    logger = logging.getLogger(name)
+    logger.setLevel(getattr(logging, level.upper()))
+    logger.handlers.clear()
+    logger.propagate = False
+
+    formatter = logging.Formatter(
+        fmt="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(getattr(logging, level.upper()))
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+
+    if save_dir is not None:
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(Path(save_dir) / f"{name}.log", mode="w", encoding="utf-8")
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+
+    return logger

@@ -6,8 +6,6 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import argparse
 import json
-import logging
-import os
 import random
 import time
 from pathlib import Path
@@ -16,7 +14,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-
+from darts.utils import create_exp_dir
 from utils.logger_utils import setup_logger
 
 
@@ -49,14 +47,6 @@ def _normalize_args(args: argparse.Namespace | dict[str, Any]) -> argparse.Names
     merged = vars(defaults).copy()
     merged.update(vars(provided))
     return argparse.Namespace(**merged)
-
-
-def _default_save_dir(save_dir: str | None) -> str:
-    """生成默认结果保存目录。"""
-    if save_dir:
-        return save_dir
-    timestamp = time.strftime("%Y%m%d_%H%M%S")
-    return str(Path("./results") / f"search_{timestamp}")
 
 
 def _validate_args(args: argparse.Namespace) -> None:
@@ -253,19 +243,13 @@ def search_candidates(args) -> list[dict[str, Any]]:
     if args_ns.metric not in metric_choices:
         raise ValueError(f"不支持的 metric: {args_ns.metric}，可选: {metric_choices}")
 
-    save_dir = _default_save_dir(args_ns.save_dir)
-    args_ns.save_dir = save_dir
-    os.makedirs(save_dir, exist_ok=True)
-
-    # 初始化日志系统
-    log_level = getattr(args_ns, "log_level", "INFO")
-    logger = setup_logger(name="search", log_level)
+    args_ns.save_dir = create_exp_dir(stage="search")
+    logger = setup_logger(name="search", save_dir=args_ns.save_dir, level="INFO")
 
     # 输出搜索开始摘要
     logger.info("=" * 60)
     logger.info("EvoHCell-NAS 进化搜索开始")
     logger.info("=" * 60)
-    logger.info(f"保存目录: {save_dir}")
     logger.info(f"进化代数: {args_ns.generations}")
     logger.info(f"种群大小: {args_ns.population_size}")
     logger.info(f"Zero-cost 指标: {args_ns.metric}")
@@ -331,7 +315,7 @@ def search_candidates(args) -> list[dict[str, Any]]:
 
     result = {
         "meta": {
-            "save_dir": save_dir,
+            "save_dir": args_ns.save_dir,
             "metric": args_ns.metric,
             "seed": args_ns.seed,
             "generations": args_ns.generations,
@@ -346,12 +330,12 @@ def search_candidates(args) -> list[dict[str, Any]]:
         "candidates": candidates,
     }
 
-    output_path = Path(save_dir) / "top_candidates.json"
+    output_path = Path(args_ns.save_dir) / "top_candidates.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
     # 生成人工可读的文本文件
-    readable_path = Path(save_dir) / "top_candidates_readable.txt"
+    readable_path = Path(args_ns.save_dir) / "top_candidates_readable.txt"
     with open(readable_path, "w", encoding="utf-8") as f:
         f.write("=" * 80 + "\n")
         f.write("EvoHCell-NAS 搜索结果 - 可读格式\n")
@@ -379,7 +363,7 @@ def search_candidates(args) -> list[dict[str, Any]]:
 
     # 为每个候选单独导出 JSON 文件
     for candidate in candidates:
-        candidate_file = Path(save_dir) / f"candidate_{candidate['id']}.json"
+        candidate_file = Path(args_ns.save_dir) / f"candidate_{candidate['id']}.json"
         candidate_data = {
             "id": candidate["id"],
             "front_rank": candidate["front_rank"],
@@ -398,24 +382,20 @@ def search_candidates(args) -> list[dict[str, Any]]:
     _plot_pareto_front(
         final_pop=final_pop,
         fronts=fronts,
-        save_dir=save_dir,
+        save_dir=args_ns.save_dir,
         maximize_score=maximize_score,
     )
 
     # 输出最终摘要
     first_front_size = len(fronts[0]) if fronts else 0
-    pareto_path = Path(save_dir) / "pareto_front.png"
+    pareto_path = Path(args_ns.save_dir) / "pareto_front.png"
     logger.info("=" * 60)
     logger.info("搜索完成，最终摘要")
     logger.info(f"最终第一帕累托前沿大小: {first_front_size}")
     logger.info(f"top_k 实际导出候选数: {len(candidates)}")
-    logger.info(f"top_candidates.json 已保存至: {output_path}")
-    logger.info(f"top_candidates_readable.txt 已保存至: {readable_path}")
-    logger.info(f"单独候选文件已保存至: {save_dir}/candidate_*.json")
-    logger.info(f"pareto_front.png 已保存至: {pareto_path}")
     logger.info("=" * 60)
 
-    return candidates, save_dir
+    return candidates, args_ns.save_dir
 
 
 def build_parser() -> argparse.ArgumentParser:
