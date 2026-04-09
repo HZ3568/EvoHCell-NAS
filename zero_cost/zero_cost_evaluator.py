@@ -11,7 +11,7 @@ import zero_cost.grad_norm
 import zero_cost.synflow
 from darts.model import NetworkCIFAR
 from darts.genotypes import Genotype
-from darts.utils import _data_transforms_cifar10
+from darts.utils import data_transforms_cifar10
 from zero_cost.zero_utils import _measure_impls
 
 
@@ -139,7 +139,7 @@ def get_cifar10_batch(batch_size: int = 64, data_root: str = "./data"):
     Load one batch from CIFAR-10.
     Priority: try download=True, fallback to local existing data.
     """
-    train_transform, _ = _data_transforms_cifar10(cutout=False, cutout_length=0)
+    train_transform, _ = data_transforms_cifar10(cutout=False, cutout_length=0)
 
     try:
         train_data = dset.CIFAR10(

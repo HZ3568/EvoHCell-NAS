@@ -4,6 +4,7 @@ import torch
 import numpy as np
 import torchvision.transforms as transforms
 import logging
+from collections import namedtuple
 from pathlib import Path
 
 
@@ -60,7 +61,7 @@ class Cutout(object):
         return img
 
 
-def _data_transforms_cifar10(cutout, cutout_length):
+def data_transforms_cifar10(cutout, cutout_length):
     CIFAR_MEAN = [0.49139968, 0.48215827, 0.44653124]
     CIFAR_STD = [0.24703233, 0.24348505, 0.26158768]
 
@@ -135,3 +136,26 @@ def setup_logger(name: str, save_dir: str | None = None, level: str = "INFO"):
         logger.addHandler(file_handler)
 
     return logger
+
+def convert_list_to_genotype(arch):
+    Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
+    op_dict = {
+        0: 'none',
+        1: 'max_pool_3x3',
+        2: 'avg_pool_3x3',
+        3: 'skip_connect',
+        4: 'sep_conv_3x3',
+        5: 'sep_conv_5x5',
+        6: 'dil_conv_3x3',
+        7: 'dil_conv_5x5'
+    }
+
+    darts_arch = [[], []]
+    i = 0
+    for cell in arch:
+        for n in cell:
+            darts_arch[i].append((op_dict[n[1]], int(n[0])))
+        i += 1
+    geno = Genotype(normal=darts_arch[0], normal_concat=[2, 3, 4, 5], reduce=darts_arch[1],
+                    reduce_concat=[2, 3, 4, 5])
+    return str(geno)

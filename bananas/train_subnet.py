@@ -5,6 +5,7 @@ import gc
 import torch.nn as nn
 import torch.utils
 import torch.backends.cudnn as cudnn
+import torchvision.datasets as dset
 from collections import namedtuple
 
 from darts.model import NetworkCIFAR
@@ -12,12 +13,11 @@ from darts import utils
 import torch.multiprocessing
 
 torch.multiprocessing.set_sharing_strategy('file_system')
-from utils.convert_to_genotype import convert_to_genotype
-import torchvision.datasets as dset
-from utils.data_loader import train_transform, valid_transform
+from darts.utils import data_transforms_cifar10, convert_list_to_genotype
 
 logger = logging.getLogger("arch_pool")
 
+train_transform, valid_transform = data_transforms_cifar10(False, 16)
 train_data = dset.CIFAR10(root='../data', train=True, download=True, transform=train_transform)
 valid_data = dset.CIFAR10(root='../data', train=False, download=True, transform=valid_transform)
 
@@ -93,7 +93,7 @@ class Train:
 
         # ---------------- 模型定义 ----------------
         Genotype = namedtuple('Genotype', 'normal normal_concat reduce reduce_concat')
-        genotype = eval(convert_to_genotype(arch))
+        genotype = eval(convert_list_to_genotype(arch))
         model = NetworkCIFAR(self.init_channels, self.CIFAR_CLASSES, self.layers, self.auxiliary, genotype)  # 子网模型
         model = model.to(device)
 

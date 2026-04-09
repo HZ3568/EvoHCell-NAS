@@ -11,7 +11,7 @@ import zero_cost.synflow
 
 from .population import Individual, Population
 from darts.model_hetero_cell import NetworkCIFARHeteroCell
-from darts.utils import _data_transforms_cifar10
+from darts.utils import data_transforms_cifar10
 from zero_cost.zero_utils import _measure_impls
 
 
@@ -39,7 +39,7 @@ class Evaluator:
     def _get_cifar10_batch(self) -> Tuple[torch.Tensor, torch.Tensor]:
         if self._cached_inputs_targets is not None:
             return self._cached_inputs_targets
-        train_transform, _ = _data_transforms_cifar10(cutout=False, cutout_length=0)
+        train_transform, _ = data_transforms_cifar10(cutout=False, cutout_length=0)
         try:
             train_data = dset.CIFAR10(root=self.data_root, train=True, download=True, transform=train_transform)
         except Exception:

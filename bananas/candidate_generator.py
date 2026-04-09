@@ -1,8 +1,7 @@
 from bananas.nas_algorithms import bananas
 from bananas.data import Data
-from utils.convert_to_genotype import convert_to_genotype
 from pathlib import Path
-from darts.utils import create_exp_dir, setup_logger
+from darts.utils import create_exp_dir, setup_logger, convert_list_to_genotype
 
 
 
@@ -25,7 +24,7 @@ def main():
 
     with open(arch_path, "a", encoding="utf-8") as f:
         for d in top_data:
-            arch = str(convert_to_genotype(d[1]))
+            arch = str(convert_list_to_genotype(d[1]))
             f.write(f"{arch} valid_loss:{d[0]:.4f}\n")
 
 

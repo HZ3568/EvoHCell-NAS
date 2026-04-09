@@ -145,7 +145,7 @@ def main():
         weight_decay=args.weight_decay
     )
 
-    train_transform, valid_transform = utils._data_transforms_cifar10(
+    train_transform, valid_transform = utils.data_transforms_cifar10(
         args.cutout,
         args.cutout_length
     )
