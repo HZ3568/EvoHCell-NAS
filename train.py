@@ -57,39 +57,20 @@ def dict_to_genotype(gdict):
 
 def load_genotype_list():
     """
-    支持两种输入方式：
-    1. --arch <name>: 从 darts/genotypes.py 加载预定义架构
-    2. --genotype_json <path>: 从单个候选 JSON 文件加载（如 candidate_0.json）
-
     JSON 文件格式要求：
-    - 顶层直接是 genotype list，或
-    - 顶层包含 "genotype_list" 字段
+    {
+        "id": 0,
+        "front_rank": 0,
+        "genotype_list": [...],
+        "zero_cost_score": ...,
+        "params_mb": ...,
+        "meta": {...}
+    }
     """
-    if args.arch is not None:
-        if not hasattr(genotypes, args.arch):
-            raise ValueError(f"genotypes.py 中不存在架构: {args.arch}")
-        genotype = getattr(genotypes, args.arch)
-        return [genotype] if not isinstance(genotype, list) else genotype
-
-    if args.genotype_json is not None:
-        with open(args.genotype_json, "r", encoding="utf-8") as f:
-            data = json.load(f)
-
-        # 情况1：顶层直接就是 genotype list
-        if isinstance(data, list):
-            return [dict_to_genotype(g) if isinstance(g, dict) else g for g in data]
-
-        # 情况2：顶层包含 genotype_list（推荐格式，如 candidate_0.json）
-        if isinstance(data, dict) and "genotype_list" in data:
-            glist = data["genotype_list"]
-            return [dict_to_genotype(g) if isinstance(g, dict) else g for g in glist]
-
-        raise ValueError(
-            "genotype_json 格式不正确：必须是 list，或包含 key 'genotype_list'。\n"
-            "提示：请使用 search.py 生成的 candidate_*.json 文件，而不是 top_candidates.json。"
-        )
-
-    raise ValueError("You must provide either --arch or --genotype_json")
+    with open(args.genotype_json, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    glist = data["genotype_list"]
+    return [dict_to_genotype(g) if isinstance(g, dict) else g for g in glist]
 
 
 def main():
@@ -286,4 +267,6 @@ def infer(valid_queue, model, criterion, device):
 # python train.py --genotype_json ./results/search_xxx/candidate_0.json
 
 if __name__ == '__main__':
-    main()
+    for i in range(5):
+        args.genotype_json = f'./results/search_20260409_180218/candidate_{i}.json'
+        main()

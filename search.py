@@ -416,7 +416,7 @@ def build_parser() -> argparse.ArgumentParser:
     # =========================
     # 搜索相关参数
     # =========================
-    parser.add_argument('--generations', type=int, default=30, help='进化代数')
+    parser.add_argument('--generations', type=int, default=100, help='进化代数')
     parser.add_argument('--population_size', type=int, default=50, help='种群大小')
     parser.add_argument('--top_k', type=int, default=5, help='返回 top-k 候选架构')
     parser.add_argument('--pc_layer', type=float, default=0.5, help='层级交叉概率')
