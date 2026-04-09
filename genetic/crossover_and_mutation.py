@@ -1,14 +1,18 @@
 """Crossover operators for genotype-list based evolutionary algorithms."""
 
 from __future__ import annotations
-from typing import Tuple, Dict, Any
+
+import math
 import random
-
+import re
+from typing import Tuple, Dict, Any, List
 from .population import Individual
+from darts.genotypes import Genotype
+from pathlib import Path
 
 
-def layerwise_crossover(p1: Individual, p2: Individual, config: Dict[str, Any]) -> Tuple[Individual, Individual]:
-    p_layer = float(config.get("pc_layer", 0.5))
+def crossover(p1: Individual, p2: Individual, config: Dict[str, Any]) -> Tuple[Individual, Individual]:
+    pc_layer = float(config.get("pc_layer", 0.5))
     g1 = p1.genotype[:]
     g2 = p2.genotype[:]
     if len(g1) != len(g2):
@@ -16,72 +20,64 @@ def layerwise_crossover(p1: Individual, p2: Individual, config: Dict[str, Any]) 
     c1 = g1[:]
     c2 = g2[:]
     for i in range(len(g1)):
-        if random.random() < p_layer:
+        if random.random() < pc_layer:
             c1[i], c2[i] = c2[i], c1[i]
     return Individual(c1, [float("inf")] * len(p1.fitness)), Individual(c2, [float("inf")] * len(p2.fitness))
 
 
-def arithmetic_crossover(p1: Individual, p2: Individual, config: Dict[str, Any], var_bounds=None) -> Tuple[Individual, Individual]:
-    return layerwise_crossover(p1, p2, config)
-
-
-def gaussian_mutation(ind: Individual, config: Dict[str, Any], var_bounds=None) -> Individual:
-    """Mutate an individual by randomly replacing operations in genotypes.
-
-    Args:
-        ind: Individual to mutate
-        config: Configuration dict containing pm_layer and pm_edge
-        var_bounds: Not used, kept for compatibility
-
-    Returns:
-        Mutated individual with reset fitness
+def softmax_sample_by_loss(candidates: List, losses: List[float], temperature: float):
     """
-    from darts.genotypes import PRIMITIVES, Genotype
+    根据 valid_loss 进行加权采样：loss 越小，采样概率越大。
+    p ~ exp(-loss / temperature)
+    """
+    weights = [math.exp(-(loss - min(losses)) / temperature) for loss in losses]
+    return random.choices(candidates, weights=weights, k=1)[0]
 
-    pm_layer = float(config.get("pm_layer", 0.15))
-    pm_edge = float(config.get("pm_edge", 0.3))
 
-    mutated_genotype_list = []
+def load_arch_pool() -> Tuple[List[Genotype], List[float]]:
+    txt_path = Path(__file__).with_name("init_population.txt")
+
+    arch_pool: List[Genotype] = []
+    arch_pool_losses: List[float] = []
+
+    pattern = re.compile(r"^(Genotype\(.*\))\s+valid_loss:([0-9]*\.?[0-9]+)\s*$")
+
+    with open(txt_path, "r", encoding="utf-8") as f:
+        for line_no, line in enumerate(f, start=1):
+            line = line.strip()
+            match = pattern.match(line)
+            genotype_str = match.group(1)
+            genotype = eval(genotype_str, {"Genotype": Genotype})
+            valid_loss = float(match.group(2))
+            arch_pool.append(genotype)
+            arch_pool_losses.append(valid_loss)
+
+    return arch_pool, arch_pool_losses
+
+
+def mutation(individual: Individual, config: Dict[str, Any]) -> Individual:
+    """
+    对 genotype_list 中的每个位置，以 pm_layer 的概率，从架构池中按 valid_loss 加权采样一个新架构进行替换。
+    """
+    pm_layer = float(config.get("pm_layer", 0.02))
+    temperature = float(config.get("mutation_temperature", 1.0))
+    arch_pool, arch_pool_losses = load_arch_pool()
+
+    g = individual.genotype[:]
     mutated = False
 
-    for genotype in ind.genotype:
-        # Decide if this layer should be mutated
+    for i in range(len(g)):
         if random.random() < pm_layer:
-            # Mutate normal cell
-            new_normal = list(genotype.normal)
-            for i in range(len(new_normal)):
-                if random.random() < pm_edge:
-                    op, node_idx = new_normal[i]
-                    # Replace operation with random choice from PRIMITIVES
-                    new_op = random.choice(PRIMITIVES)
-                    new_normal[i] = (new_op, node_idx)
-                    mutated = True
-
-            # Mutate reduce cell
-            new_reduce = list(genotype.reduce)
-            for i in range(len(new_reduce)):
-                if random.random() < pm_edge:
-                    op, node_idx = new_reduce[i]
-                    # Replace operation with random choice from PRIMITIVES
-                    new_op = random.choice(PRIMITIVES)
-                    new_reduce[i] = (new_op, node_idx)
-                    mutated = True
-
-            # Create new genotype with mutated cells (keep concat unchanged)
-            new_genotype = Genotype(
-                normal=new_normal,
-                normal_concat=genotype.normal_concat,
-                reduce=new_reduce,
-                reduce_concat=genotype.reduce_concat
+            g[i] = softmax_sample_by_loss(
+                arch_pool,
+                arch_pool_losses,
+                temperature=temperature
             )
-            mutated_genotype_list.append(new_genotype)
-        else:
-            # Keep original genotype for this layer
-            mutated_genotype_list.append(genotype)
-
-    # Reset fitness if mutation occurred
+            mutated = True
     if mutated:
-        return Individual(mutated_genotype_list, [float("inf")] * len(ind.fitness))
-    else:
-        # If no mutation occurred, return copy
-        return ind.copy()
+        return Individual(g, [float("inf")] * len(individual.fitness))
+    return individual.copy()
+
+
+if __name__ == "__main__":
+    pass

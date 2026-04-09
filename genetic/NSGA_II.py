@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .population import Population, Individual
 from .evaluate import Evaluator
-from .crossover_and_mutation import layerwise_crossover
+from .crossover_and_mutation import crossover, mutation
 
 
 def _pop_stats(individuals: Sequence[Individual]) -> Dict[str, Any]:
@@ -258,7 +258,6 @@ def run_nsga2(config: Dict[str, Any], logger: Optional[logging.Logger] = None) -
         init_pop_size = sum(1 for line in f if line.strip())
     max_population_size = int(cfg.get("population_size", init_pop_size))
     generations = int(cfg.get("generations", 20))
-    parent_pool_size = int(cfg.get("parent_pool_size", 10))
     crossover_rounds = int(cfg.get("crossover_rounds", 10))
     cfg["pop_size"] = init_pop_size
     cfg["objectives"] = 2
@@ -309,7 +308,9 @@ def run_nsga2(config: Dict[str, Any], logger: Optional[logging.Logger] = None) -
         offsprings: List[Individual] = []
         for _ in range(crossover_rounds):
             p1, p2 = select_two_parents()
-            c1, c2 = layerwise_crossover(p1, p2, cfg)
+            c1, c2 = crossover(p1, p2, cfg)
+            c1 = mutation(c1, cfg)
+            c2 = mutation(c2, cfg)
             offsprings.append(c1)
             offsprings.append(c2)
 

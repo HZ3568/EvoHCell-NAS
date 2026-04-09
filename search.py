@@ -14,8 +14,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-from darts.utils import create_exp_dir
-from utils.logger_utils import setup_logger
+from darts.utils import create_exp_dir, setup_logger
 
 
 def _available_metrics() -> list[str]:
@@ -421,7 +420,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument('--population_size', type=int, default=50, help='种群大小')
     parser.add_argument('--top_k', type=int, default=5, help='返回 top-k 候选架构')
     parser.add_argument('--pc_layer', type=float, default=0.5, help='层级交叉概率')
-    parser.add_argument('--pm_layer', type=float, default=0.2, help='层级变异概率')
+    parser.add_argument('--pm_layer', type=float, default=0.02, help='层级变异概率')
     parser.add_argument('--layers', type=int, default=20, help='网络层数')  # 20
     parser.add_argument('--init_channels', type=int, default=36, help='search阶段的初始通道数')
     parser.add_argument('--seed', type=int, default=0, help='随机种子')
